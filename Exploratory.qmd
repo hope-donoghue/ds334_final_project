@@ -1,0 +1,57 @@
+---
+title: "Data Exploration"
+author: "Hope Donoghue"
+format: html
+---
+
+```{r}
+library(readr)
+goalscorers <- read_csv("archive/goalscorers.csv")
+results <- read_csv("archive/results.csv")
+shootouts <- read_csv("archive/shootouts.csv")
+```
+
+Interested in the rise of women's soccer globally and how the United States are not ranked number 1 anymore. 
+
+```{r}
+devtools::install_github("statsbomb/StatsBombR")
+```
+
+
+Using event data to create an expected goals model with machine learning techniques.
+
+Inspriation a blog for expected goals model: https://www.gopalakrishnan.me/2019/04/17/xg/
+
+- Goals talk about the results of the shots taken in a game as expected goals talk about the quality of the shots taken in the game and it assigns a value (xG) to each shot, which is the probability of that shot resulting in a goal. Higher xG, means higher chance of a shot becoming a goal. 
+
+
+```{r}
+library(dbplyr) # database access
+library(DBI) # database access
+library(tidyverse) # dataframe manipulation
+library(tidymodels) # data processing and modeling
+
+source("../data/pitch_plots.r") # helper function to plot the pitch
+```
+
+
+```{r}
+Comp = FreeCompetitions()
+
+#Getting data only for the women's competitions
+Matches = FreeMatches(c(37, 49))
+
+error_game = nrow(Matches) - 39
+all_events = data.frame()
+for(i in 1:nrow(Matches)){
+  if(i %in% c(error_game)) next
+  temp = get.matchFree(Matches[i,])
+  print(i)
+  temp = allclean(temp)
+  all_events = bind_rows(all_events, temp)
+  rm(temp)
+}
+```
+
+
+
