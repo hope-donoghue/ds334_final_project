@@ -17,12 +17,25 @@ Interested in the rise of women's soccer globally and how the United States are 
 devtools::install_github("statsbomb/StatsBombR")
 ```
 
-
 Using event data to create an expected goals model with machine learning techniques.
 
-Inspriation a blog for expected goals model: https://www.gopalakrishnan.me/2019/04/17/xg/
+Inspiration a blog for expected goals model: https://www.gopalakrishnan.me/2019/04/17/xg/
+
+https://statsbomb.com/soccer-metrics/expected-goals-xg-explained/ 
 
 - Goals talk about the results of the shots taken in a game as expected goals talk about the quality of the shots taken in the game and it assigns a value (xG) to each shot, which is the probability of that shot resulting in a goal. Higher xG, means higher chance of a shot becoming a goal. 
+
+- An xG model uses historical information from thousands of shots with similar characteristics to estimate the likelihood of a goal on a scale between 0 and 1.
+For example, a shot with an xG value of 0.2 is one that we would generally expect to be converted twice in every 10 attempts.
+
+How is xG calculated?
+- Each xG model has its own characteristics, but the main factors are distance to goal, angle to goal, body part with which the shot was taken an take of assist or previous action. 
+
+What have xG models taught us?
+- Central shots are best (shots from the central part of the penalty area are more valuable than those from tighter areas)
+- Feet over head: from the same distance, foot shots are more likely to result in goals than headed shots. 
+- Crosses are more difficult to convert than ground passes
+
 
 
 ```{r}
@@ -31,21 +44,27 @@ library(DBI) # database access
 library(tidyverse) # dataframe manipulation
 library(tidymodels) # data processing and modeling
 
-source("../data/pitch_plots.r") # helper function to plot the pitch
+#source("../data/pitch_plots.r") # helper function to plot the pitch
 ```
 
-
 ```{r}
+library(StatsBombR)
 Comp = FreeCompetitions()
+Matches = FreeMatches(Comp)
 
-#Getting data only for the women's competitions
-Matches = FreeMatches(c(37, 49))
+#Getting data only for the nwsl league
+womens_matches_nwsl <- Matches %>%
+  filter(home_team.home_team_gender == "female") %>%
+  filter(competition.competition_name == "NWSL")
+  
+
+first_match <- get.matchFree(womens_matches_nwsl[1,])
 
 error_game = nrow(Matches) - 39
 all_events = data.frame()
-for(i in 1:nrow(Matches)){
-  if(i %in% c(error_game)) next
-  temp = get.matchFree(Matches[i,])
+for(i in 1:nrow(womens_matches_nwsl)){
+  #if(i %in% c(error_game)) next
+  temp = get.matchFree(womens_matches_nwsl[i,])
   print(i)
   temp = allclean(temp)
   all_events = bind_rows(all_events, temp)
@@ -53,5 +72,71 @@ for(i in 1:nrow(Matches)){
 }
 ```
 
+```{r}
+shots <- all_events %>%
+  filter(type.name == "Shot")
+```
+
+```{r}
+shots_valid <- shots %>% mutate(opposite = 120 - location.x,
+adjacent = 40 - location.y, hypotenuse = sqrt(opposite^2 + adjacent^2),
+                                                angle.to.goal = ifelse(location.y > 40, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14),
+                                                distance.to.goal = hypotenuse) %>%
+                                                  select(-c(opposite, adjacent, hypotenuse))
+```
 
 
+```{r}
+#adding distance from goalkeeper and angle to gk
+shots_valid <- shots %>% mutate(opposite = location.x.GK - location.x,
+                                                adjacent = location.y.GK - location.y,
+                                                hypotenuse = sqrt(opposite^2 + adjacent^2),
+                                                angle.to.gk = ifelse(location.y > location.y.GK, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14),
+                                                angle.to.gk = ifelse(location.x > location.x.GK & location.y < location.y.GK, 270 - asin(opposite/hypotenuse)*180/3.14, angle.to.gk),
+                                                distance.to.gk = hypotenuse,
+                                                gk.to.goalline = sqrt((120 - location.x.GK)^2 + (40 - location.y.GK)^2)) %>%
+                                                  select(-c(opposite, adjacent, hypotenuse))
+```
+
+Building the model:
+
+```{r}
+library(caret)
+
+shots_valid <- shots_valid %>%
+  mutate(is.goal = if_else(shot.outcome.name == "Goal", "Yes", "No"))
+
+#choosing independent variables
+shots.varsdata <- shots_valid %>%
+  select('id', 'is.goal','distance.to.gk', 'DistToGoal', 'angle.to.gk', 'AngleToGoal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name') %>%
+  drop_na()
+
+#splitting into test train
+idx = createDataPartition(shots.varsdata$is.goal, p = 0.8, list = F)
+train = shots.varsdata[idx,]
+test = shots.varsdata[-idx,]
+```
+
+```{r}
+# random forest ml model from blog post
+vars = ncol(model.matrix(is.goal ~ ., train[,!colnames(train) %in% c("id")])) - 2
+grid = expand.grid(mtry = 4:vars)
+
+control = trainControl(classProbs = TRUE, method = "cv", number = 5,
+                       allowParallel = T, summaryFunction = prSummary, savePredictions = T)
+
+rf.1 = caret::train(is.goal ~ .,
+                    data = train[,!colnames(train) %in% c("id")], 
+                    method = "rf",
+                    metric = "F",
+                    trControl = control,
+                    tuneGrid = grid,
+                    preProcess = c("center", "scale"))
+
+xG_test.rf.v1 = predict(rf.1, test, type = "prob")
+
+# weird error need to fix
+```
+
+https://biscuitchaserfc.blogspot.com/2020/05/shot-maps-in-r-using-statsbomb-data.html
+- To create shot maps in R
