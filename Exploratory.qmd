@@ -11,13 +11,11 @@ results <- read_csv("archive/results.csv")
 shootouts <- read_csv("archive/shootouts.csv")
 ```
 
-Interested in the rise of women's soccer globally and how the United States are not ranked number 1 anymore. 
-
 ```{r}
 devtools::install_github("statsbomb/StatsBombR")
 ```
 
-Using event data to create an expected goals model with machine learning techniques.
+Using event data to create an expected goals model with machine learning techniques for NWSL women's soccer
 
 Inspiration a blog for expected goals model: https://www.gopalakrishnan.me/2019/04/17/xg/
 
@@ -35,7 +33,6 @@ What have xG models taught us?
 - Central shots are best (shots from the central part of the penalty area are more valuable than those from tighter areas)
 - Feet over head: from the same distance, foot shots are more likely to result in goals than headed shots. 
 - Crosses are more difficult to convert than ground passes
-
 
 
 ```{r}
@@ -57,7 +54,7 @@ womens_matches_nwsl <- Matches %>%
   filter(home_team.home_team_gender == "female") %>%
   filter(competition.competition_name == "NWSL")
   
-
+# see the first match of data only 
 first_match <- get.matchFree(womens_matches_nwsl[1,])
 
 error_game = nrow(Matches) - 39
@@ -100,6 +97,11 @@ shots_valid <- shots %>% mutate(opposite = location.x.GK - location.x,
 
 Building the model:
 
+Information the caret package and how to use it in R for random forests
+https://rpubs.com/jkylearmstrong/RandomForest_w_caret
+
+- mtry is the number of randomly selected predictors in the model 
+
 ```{r}
 library(caret)
 
@@ -118,25 +120,61 @@ test = shots.varsdata[-idx,]
 ```
 
 ```{r}
-# random forest ml model from blog post
+# random forest ml model 
+# with metric being Accuracy 
 vars = ncol(model.matrix(is.goal ~ ., train[,!colnames(train) %in% c("id")])) - 2
 grid = expand.grid(mtry = 4:vars)
 
+# five folds with cross validation 
 control = trainControl(classProbs = TRUE, method = "cv", number = 5,
                        allowParallel = T, summaryFunction = prSummary, savePredictions = T)
 
-rf.1 = caret::train(is.goal ~ .,
+rf.1 = train(is.goal ~ .,
                     data = train[,!colnames(train) %in% c("id")], 
                     method = "rf",
-                    metric = "F",
+                    metric = "Accuracy", # looking at highest accuracy for metric
                     trControl = control,
                     tuneGrid = grid,
                     preProcess = c("center", "scale"))
 
-xG_test.rf.v1 = predict(rf.1, test, type = "prob")
+print(rf.1)
 
-# weird error need to fix
 ```
 
+```{r}
+# predictions for test set
+xG_test.rf.v1 <- predict(rf.1, test, type = "prob")
+```
+
+```{r}
+# adding probability of xG to dataset using the random forest model1 
+shots.varsdata$my.xG <- predict(rf.1, newdata = shots.varsdata, type = "prob")
+```
+
+```{r}
+# confusion matrix
+confusionMatrix(rf.1)
+```
+- We see that the average accuracy with this model is 0.9059
+
+```{r}
+# Plot 
+plot(rf.1)
+```
+- We see from the plot that the highest AUC scores (takes into account precision and recall) is with 5 randomly selected predictors. 
+
+```{r}
+# see how many mtry the model uses
+rf.1$bestTune$mtry
+```
+
+```{r}
+# feature importance 
+varImp(rf.1)
+```
+- With random forests, we can see feature importance. This plot shows 20 most important variables shown. We see that the feature, distance.to.gk is 96%, angle.to.gk is 80%, AngleToGoal is 77%, gk.to.goaline is 74%. 
+
+
+
 https://biscuitchaserfc.blogspot.com/2020/05/shot-maps-in-r-using-statsbomb-data.html
-- To create shot maps in R
+- To create shot maps in R for each match in the NWSL season -> TO DO after class:
