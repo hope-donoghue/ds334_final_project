@@ -71,21 +71,46 @@ for(i in 1:nrow(womens_matches_nwsl)){
 
 ```{r}
 shots <- all_events %>%
-  filter(type.name == "Shot")
+  filter(type.name == "Shot") %>%
+  mutate(is.goal = ifelse(shot.outcome.name == "Goal", "Goal", "NoGoal"))
+```
+
+
+```{r}
+# Plotting all the shots in the NWSL season
+library(tidyr)
+#devtools::install_github("FCrSTATS/SBpitch")
+library(SBpitch)
+library(ggplot2)
+
+p = create_Pitch("#ffffff", "#A9A9A9", "#ffffff", "#000000", BasicFeatures = FALSE, goaltype = "box")
+
+p + geom_point(data = shots, aes(x = location.x, y = location.y), alpha = 0.2, size = 2.5, shape = 16) + theme_void() + labs(title = "Shot Location in NWSL 2018 Season")
+```
+
+
+```{r}
+# cleaning the data to remove any columns with only NA values
+not_all_na = function(x) any(!is.na(x))
 ```
 
 ```{r}
-shots_valid <- shots %>% mutate(opposite = 120 - location.x,
+shots_valid_new <- shots %>%
+  select_if(not_all_na)
+```
+
+```{r}
+# Creating location variables
+shots_valid_new <- shots_valid_new %>% mutate(opposite = 120 - location.x,
 adjacent = 40 - location.y, hypotenuse = sqrt(opposite^2 + adjacent^2),
-                                                angle.to.goal = ifelse(location.y > 40, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14),
-                                                distance.to.goal = hypotenuse) %>%
-                                                  select(-c(opposite, adjacent, hypotenuse))
+angle.to.goal = ifelse(location.y > 40, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14), distance.to.goal = hypotenuse) %>%
+select(-c(opposite, adjacent, hypotenuse))
 ```
 
 
 ```{r}
 #adding distance from goalkeeper and angle to gk
-shots_valid <- shots %>% mutate(opposite = location.x.GK - location.x,
+shots_valid_new <- shots_valid_new %>% mutate(opposite = location.x.GK - location.x,
                                                 adjacent = location.y.GK - location.y,
                                                 hypotenuse = sqrt(opposite^2 + adjacent^2),
                                                 angle.to.gk = ifelse(location.y > location.y.GK, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14),
@@ -95,6 +120,18 @@ shots_valid <- shots %>% mutate(opposite = location.x.GK - location.x,
                                                   select(-c(opposite, adjacent, hypotenuse))
 ```
 
+```{r}
+# there are a lot of columns with NA that are logical boolean values so replace with FALSE
+
+logical.vars = names(Filter(is.logical, shots_valid_new))
+
+df <- shots_valid_new[logical.vars]
+df[is.na(df)] = FALSE
+shots_valid_new[logical.vars] = df
+
+```
+
+
 Building the model:
 
 Information the caret package and how to use it in R for random forests
@@ -103,15 +140,17 @@ https://rpubs.com/jkylearmstrong/RandomForest_w_caret
 - mtry is the number of randomly selected predictors in the model 
 
 ```{r}
-library(caret)
+# choose independent variables
+ind.vars = c("id", "is.goal", 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'AngleToGoal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name')
+```
 
-shots_valid <- shots_valid %>%
-  mutate(is.goal = if_else(shot.outcome.name == "Goal", "Yes", "No"))
+```{r}
+library(caret) 
 
-#choosing independent variables
-shots.varsdata <- shots_valid %>%
-  select('id', 'is.goal','distance.to.gk', 'DistToGoal', 'angle.to.gk', 'AngleToGoal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name') %>%
-  drop_na()
+shots.varsdata = subset(shots_valid_new, select = ind.vars) %>%
+  drop_na() %>%
+  filter(play_pattern.name != "Other")
+
 
 #splitting into test train
 idx = createDataPartition(shots.varsdata$is.goal, p = 0.8, list = F)
@@ -120,16 +159,27 @@ test = shots.varsdata[-idx,]
 ```
 
 ```{r}
+training_xg <- shots.varsdata$shot.statsbomb_xg[idx]
+
+training_xg
+
+test_xg <- subset(shots_valid_new, select = c(ind.vars, 'shot.statsbomb_xg')) %>%
+  drop_na()
+```
+
+
+```{r}
 # random forest ml model 
 # with metric being Accuracy 
-vars = ncol(model.matrix(is.goal ~ ., train[,!colnames(train) %in% c("id")])) - 2
-grid = expand.grid(mtry = 4:vars)
+vars <-  ncol(model.matrix(is.goal ~ ., train[,!colnames(train) %in% c("id")])) - 2
+
+grid <-  expand.grid(mtry = 4:vars)
 
 # five folds with cross validation 
-control = trainControl(classProbs = TRUE, method = "cv", number = 5,
+control <- trainControl(classProbs = TRUE, method = "cv", number = 5,
                        allowParallel = T, summaryFunction = prSummary, savePredictions = T)
 
-rf.1 = train(is.goal ~ .,
+rf.1 <- train(is.goal ~ .,
                     data = train[,!colnames(train) %in% c("id")], 
                     method = "rf",
                     metric = "Accuracy", # looking at highest accuracy for metric
@@ -155,26 +205,71 @@ shots.varsdata$my.xG <- predict(rf.1, newdata = shots.varsdata, type = "prob")
 # confusion matrix
 confusionMatrix(rf.1)
 ```
-- We see that the average accuracy with this model is 0.9059
+- We see that the average accuracy with this model is 0.9156
 
 ```{r}
 # Plot 
 plot(rf.1)
 ```
-- We see from the plot that the highest AUC scores (takes into account precision and recall) is with 5 randomly selected predictors. 
+- We see from the plot that the highest AUC scores (takes into account precision and recall) is with 4 randomly selected predictors. 
 
 ```{r}
 # see how many mtry the model uses
 rf.1$bestTune$mtry
 ```
+- The selected model uses 4 randomly selected predictors for the highest accuracy
 
 ```{r}
 # feature importance 
 varImp(rf.1)
 ```
-- With random forests, we can see feature importance. This plot shows 20 most important variables shown. We see that the feature, distance.to.gk is 96%, angle.to.gk is 80%, AngleToGoal is 77%, gk.to.goaline is 74%. 
+- With random forests, we can see feature importance. This plot shows 20 most important variables shown. We see that the feature DistToGoal (100%) is important, distance.to.gk (96%), angle.to.gk (83%)
 
 
+```{r}
+shots_valid_NEW <- left_join(shots_valid_new, shots.varsdata[,c("id", "my.xG")], by = 
+                               "id")
+```
+
+```{r}
+# comparing xG and statBombxG
+comparison_xg <- shots_valid_NEW %>%
+  select(id, my.xG, shot.statsbomb_xg)
+
+comparison_xg
+```
+
+```{r}
+# shot map showing my model's xG
+a1 = p + geom_tile(data = shots_valid_NEW, aes(x = location.x, y = location.y, fill = my.xG$Goal)) + scale_fill_gradient(low = "blue", high = "red") + labs(fill = "xG", title = "Expected Goals Model NWSL 2018 Season")
+
+a1
+```
+
+
+```{r}
+# shot map with goals and xG size of point
+a2 = p + geom_point(data = shots_valid_NEW, aes(x = location.x, y = location.y, size = my.xG$Goal, color = shot.outcome.name == "Goal")) + labs(size = "xG", color = "Goal?")
+
+a2
+```
 
 https://biscuitchaserfc.blogspot.com/2020/05/shot-maps-in-r-using-statsbomb-data.html
-- To create shot maps in R for each match in the NWSL season -> TO DO after class:
+- To create shot maps based on xG in the NWSL 2018 season
+- I realized that this is not the complete NWSL season -> moving to WWC 2023 match data
+
+```{r}
+# player shots
+player_shots <- shots_valid_new %>%
+  group_by(player.name) %>%
+  tally(name = "total_shots")
+```
+
+```{r}
+# player goals
+player_goals <- shots_valid_new %>%
+  filter(is.goal == "Goal") %>%
+  group_by(player.name) %>%
+  tally(name = "Goals")
+```
+

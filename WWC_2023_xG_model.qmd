@@ -1,0 +1,207 @@
+---
+title: "WWC 2023 xG"
+author: "Hope Donoghue"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(StatsBombR)
+Comp = FreeCompetitions()
+Matches = FreeMatches(Comp)
+
+#Getting data only for the Women's world cup 2023
+wwc_2023 <- Matches %>%
+  filter(competition.competition_name == "Women's World Cup") %>%
+  filter(season.season_name == "2023")
+
+all_events_wwc2023 <- data.frame()
+for(i in 1:nrow(wwc_2023)){
+  #if(i %in% c(error_game)) next
+  temp = get.matchFree(wwc_2023[i,])
+  print(i)
+  temp = allclean(temp)
+  all_events_wwc2023 = bind_rows(all_events_wwc2023, temp)
+  rm(temp)
+}
+```
+
+
+```{r}
+# only having shots and specifying whether the shot was a goal or not
+shots <- all_events_wwc2023 %>%
+  filter(type.name == "Shot") %>%
+  mutate(is.goal = ifelse(shot.outcome.name == "Goal", "Goal", "NoGoal"))
+```
+
+
+```{r}
+# Plotting all the shots in the WWC 2023
+library(tidyr)
+#devtools::install_github("FCrSTATS/SBpitch")
+library(SBpitch)
+library(ggplot2)
+
+pitch = create_Pitch("#ffffff", "#A9A9A9", "#ffffff", "#000000", BasicFeatures = FALSE, goaltype = "box")
+
+pitch + geom_point(data = shots, aes(x = location.x, y = location.y), alpha = 0.2, size = 2.5, shape = 16) + theme_void() + labs(title = "Shot Location in Women's World Cup 2023")
+```
+
+
+```{r}
+# cleaning the data to remove any columns with only NA values
+not_all_na = function(x) any(!is.na(x))
+```
+
+```{r}
+shots_valid_wwc2023 <- shots %>%
+  select_if(not_all_na)
+```
+
+```{r}
+# Creating location variables
+shots_valid_wwc2023 <- shots_valid_wwc2023 %>% 
+  mutate(opposite = 120 - location.x,
+adjacent = 40 - location.y, hypotenuse = sqrt(opposite^2 + adjacent^2),
+angle.to.goal = ifelse(location.y > 40, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14), distance.to.goal = hypotenuse) %>%
+select(-c(opposite, adjacent, hypotenuse))
+```
+
+
+```{r}
+#adding distance from goalkeeper and angle to gk
+shots_valid_wwc2023 <- shots_valid_wwc2023 %>% mutate(opposite = location.x.GK - location.x,
+                                                adjacent = location.y.GK - location.y,
+                                                hypotenuse = sqrt(opposite^2 + adjacent^2),
+                                                angle.to.gk = ifelse(location.y > location.y.GK, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14),
+                                                angle.to.gk = ifelse(location.x > location.x.GK & location.y < location.y.GK, 270 - asin(opposite/hypotenuse)*180/3.14, angle.to.gk),
+                                                distance.to.gk = hypotenuse,
+                                                gk.to.goalline = sqrt((120 - location.x.GK)^2 + (40 - location.y.GK)^2)) %>%
+                                                  select(-c(opposite, adjacent, hypotenuse))
+```
+
+```{r}
+# there are a lot of columns with NA that are logical boolean values so replace with FALSE
+
+logical.vars = names(Filter(is.logical, shots_valid_wwc2023))
+
+df <- shots_valid_wwc2023[logical.vars]
+df[is.na(df)] = FALSE
+shots_valid_wwc2023[logical.vars] = df
+
+```
+
+
+```{r}
+# choose independent variables
+ind.vars = c("id", "is.goal", 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name')
+```
+
+```{r}
+library(caret) 
+
+shots.varsdata = subset(shots_valid_wwc2023, select = ind.vars) %>%
+  drop_na() %>%
+  filter(play_pattern.name != "Other")
+
+
+#splitting into test train
+idx = createDataPartition(shots.varsdata$is.goal, p = 0.8, list = F)
+train = shots.varsdata[idx,]
+test = shots.varsdata[-idx,]
+```
+
+```{r}
+training_xg <- shots.varsdata$shot.statsbomb_xg[idx]
+
+training_xg
+
+test_xg <- subset(shots_valid_wwc2023, select = c(ind.vars, 'shot.statsbomb_xg')) %>%
+  drop_na()
+```
+
+
+```{r}
+# random forest ml model 
+# with metric being Accuracy 
+vars <-  ncol(model.matrix(is.goal ~ ., train[,!colnames(train) %in% c("id")])) - 2
+
+grid <-  expand.grid(mtry = 4:vars)
+
+# five folds with cross validation 
+control <- trainControl(classProbs = TRUE, method = "cv", number = 5,
+                       allowParallel = T, summaryFunction = prSummary, savePredictions = T)
+
+rf.1 <- train(is.goal ~ .,
+                    data = train[,!colnames(train) %in% c("id")], 
+                    method = "rf",
+                    metric = "Accuracy", # looking at highest accuracy for metric
+                    trControl = control,
+                    tuneGrid = grid,
+                    preProcess = c("center", "scale"))
+
+print(rf.1)
+
+```
+
+```{r}
+# predictions for test set
+xG_test.rf.1 <- predict(rf.1, test, type = "prob")
+```
+
+```{r}
+# adding probability of xG to dataset using the random forest model1 
+shots.varsdata$my.xG <- predict(rf.1, newdata = shots.varsdata, type = "prob")
+```
+
+```{r}
+# confusion matrix
+confusionMatrix(rf.1)
+```
+- We see that the accuracy is 91.27%
+
+```{r}
+# Plot 
+plot(rf.1)
+```
+
+```{r}
+# see how many mtry the model uses
+rf.1$bestTune$mtry
+```
+- The selected model uses 7 randomly selected predictors for the highest accuracy
+
+```{r}
+# feature importance 
+varImp(rf.1)
+```
+
+
+```{r}
+shots_valid_wwc2023 <- left_join(shots_valid_wwc2023, shots.varsdata[,c("id", "my.xG")], by = 
+                               "id")
+```
+
+
+```{r}
+# shot map showing my model's xG for the 2023 WWC
+a3 = pitch + geom_point(data = shots_valid_wwc2023, aes(x = location.x, y = location.y, color = my.xG$Goal)) + labs(color = "xG", title = "Expected Goals Model Women's World Cup 2023")
+
+a3
+```
+
+```{r}
+# shot map with goals and xG size of point
+a4 = pitch + geom_point(data = shots_valid_wwc2023, aes(x = location.x, y = location.y, size = my.xG$Goal, color = shot.outcome.name == "Goal")) + labs(size = "xG", color = "Goal?")
+
+a4
+```
+
+```{r}
+# Republic of Ireland's goal from corner kick, which has a very high xG - need to investigate this
+goals <- shots_valid_wwc2023 %>%
+  filter(shot.outcome.name == "Goal") %>%
+  filter(team.name == "Republic of Ireland Women's")
+```
+
+
