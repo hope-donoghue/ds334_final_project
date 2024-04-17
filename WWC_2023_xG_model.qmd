@@ -454,8 +454,8 @@ a4
 
 ```{r}
 # adding stroke to the points to add border
-# figure out how to add shot result also to plot!!!
-a5 = pitch + geom_point(data = shots_valid_wwc2023_no_corner, aes(x = location.x, y = location.y, color = my.xG$Goal, stroke = 2, alpha = 0.2)) + labs(color = "xG", caption = "Removed Republic of Ireland's goal directly from corner", title = "Expected Goals Model Women's World Cup 2023")
+# figure out how to add shot result
+a5 = pitch + geom_point(data = shots_valid_wwc2023_no_corner, aes(x = location.x, y = location.y, size = my.xG$Goal, stroke = 0.5, alpha = 0.2, color = is.goal)) + labs(size = "xG", caption = "Removed Republic of Ireland's goal directly from corner", title = "Expected Goals Model Women's World Cup 2023")
 
 a5
 ```
@@ -466,6 +466,28 @@ a6 = pitch + geom_point(data = shots_valid_wwc2023_no_corner, aes(x = location.x
 
 a6
 ```
+
+```{r}
+# using open point shape to include stroke and color to the shot map
+# stroke argument needs numeric variables
+
+shots_valid_wwc2023_no_corner <- shots_valid_wwc2023_no_corner %>%
+  mutate(is.goal_numeric = if_else(is.goal == "Goal", 1.5, 0.5))
+
+a7 = pitch + geom_point(data = shots_valid_wwc2023_no_corner, aes(x = location.x, y = location.y, color = my.xG$Goal, stroke = is.goal_numeric), shape = 1, size = 2) + labs(color = "xG", caption = "Removed Republic of Ireland's goal directly from corner; Darker circles mean goal was scored", title = "Expected Goals Model WWC 2023")
+
+a7
+```
+
+```{r}
+a7 = pitch + geom_point(data = shots_valid_wwc2023_no_corner, 
+                        aes(x = location.x, y = location.y, color = my.xG$Goal, 
+                        linetype = is.goal), 
+                        shape = 1)
+
+a7
+```
+
 
 
 
@@ -516,5 +538,34 @@ players_data <- shots_valid_wwc2023_no_corner %>%
                             "Aitana Bonmati Conca",
                             "Hayley Emma Raso"))
 
- ggplot() + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(data = players_data, aes(x = location.x, y = location.y, size = my.xG$Goal, color = shot.outcome.name == "Goal")) + facet_wrap(~player.name) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 15, label = paste0("xG Total: ", round(total_xg), digits = 2))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 15, label = paste0("xG Per Shot: ", xg_per_shot))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 65, label = paste0("Goals: ", Goals))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 65, label = paste0("Total Shots: ", total_shots))) + labs(title = "Top 10 Players Shot Map WWC 2023", color = "Goal", size = "xG")
+ ggplot() + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(data = players_data, aes(x = location.x, y = location.y, size = my.xG$Goal, color = shot.outcome.name == "Goal")) + facet_wrap(~player.name) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 15, label = paste0("xG Total: ", round(total_xg), digits = 2))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 15, label = paste0("xG Per Shot: ", xg_per_shot))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 65, label = paste0("Goals: ", Goals))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 65, label = paste0("Total Shots: ", total_shots))) + labs(title = "Top 10 Players Total xG WWC 2023", color = "Goal", size = "xG")
 ```
+
+```{r, warning = FALSE, message = FALSE}
+# using stroke now and thicker border on the points means goal was scored
+library(ggsoccer)
+players_data <- shots_valid_wwc2023_no_corner %>%
+  filter(player.name %in% c("Amanda Ilestedt",
+                            "Jennifer Hermoso Fuentes",
+                            "Jill Roord",
+                            "Hinata Miyazawa",
+                            "Lauren Hemp",
+                            "Alba María Redondo Ferrer",
+                            "Kadidiatou Diani",
+                            "Eugénie Le Sommer",
+                            "Aitana Bonmati Conca",
+                            "Hayley Emma Raso"))
+
+ ggplot() + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(data = players_data, aes(x = location.x, y = location.y, color = my.xG$Goal, stroke = is.goal_numeric), shape = 1, size = 1.5) + facet_wrap(~player.name) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 15, label = paste0("xG Total: ", round(total_xg), digits = 2))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 15, label = paste0("xG Per Shot: ", xg_per_shot))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 65, label = paste0("Goals: ", Goals))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 65, label = paste0("Total Shots: ", total_shots))) + labs(title = "Top 10 Players Total xG WWC 2023", stroke = "Goal", color = "xG")
+
+```
+ 
+Suggestions: Use Plotly to click on point and see which game the shot was from:
+
+
+```{r}
+shots_valid_opponent <- shots_valid_wwc2023_no_corner %>%
+  select(id, )
+  
+```
+
