@@ -415,7 +415,7 @@ shots.varsdata$my.xG <- predict(rf.1_no_corner, newdata = shots.varsdata, type =
 # confusion matrix
 confusionMatrix(rf.1_no_corner)
 ```
-- We see that the accuracy is 91.58%
+- We see that the accuracy is 91.89%
 
 ```{r}
 # Plot 
@@ -432,7 +432,7 @@ rf.1_no_corner$bestTune$mtry
 # feature importance 
 varImp(rf.1_no_corner)
 ```
-We see that DistToGoal and distance.to.gk are important features in the model (100% and 82.12% respectively)
+We see that DistToGoal and distance.to.gk are important features in the model (100% and 89.44% respectively)
 
 ```{r}
 shots_valid_wwc2023_no_corner <- left_join(shots_valid_wwc2023_no_corner, shots.varsdata[,c("id", "my.xG")], by = "id")
@@ -535,7 +535,7 @@ players_data <- shots_valid_wwc2023_no_corner %>%
                             "Alba María Redondo Ferrer",
                             "Kadidiatou Diani",
                             "Eugénie Le Sommer",
-                            "Aitana Bonmati Conca",
+                            "Alessia Russo",
                             "Hayley Emma Raso"))
 
  ggplot() + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(data = players_data, aes(x = location.x, y = location.y, size = my.xG$Goal, color = shot.outcome.name == "Goal")) + facet_wrap(~player.name) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 15, label = paste0("xG Total: ", round(total_xg), digits = 2))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 15, label = paste0("xG Per Shot: ", xg_per_shot))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 65, label = paste0("Goals: ", Goals))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 65, label = paste0("Total Shots: ", total_shots))) + labs(title = "Top 10 Players Total xG WWC 2023", color = "Goal", size = "xG")
@@ -543,6 +543,8 @@ players_data <- shots_valid_wwc2023_no_corner %>%
 
 ```{r, warning = FALSE, message = FALSE}
 # using stroke now and thicker border on the points means goal was scored
+library(dplyr)
+library(ggplot2)
 library(ggsoccer)
 players_data <- shots_valid_wwc2023_no_corner %>%
   filter(player.name %in% c("Amanda Ilestedt",
@@ -553,7 +555,7 @@ players_data <- shots_valid_wwc2023_no_corner %>%
                             "Alba María Redondo Ferrer",
                             "Kadidiatou Diani",
                             "Eugénie Le Sommer",
-                            "Aitana Bonmati Conca",
+                            "Alessia Russo",
                             "Hayley Emma Raso"))
 
  ggplot() + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(data = players_data, aes(x = location.x, y = location.y, color = my.xG$Goal, stroke = is.goal_numeric), shape = 1, size = 1.5) + facet_wrap(~player.name) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 15, label = paste0("xG Total: ", round(total_xg), digits = 2))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 15, label = paste0("xG Per Shot: ", xg_per_shot))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 65, y = 65, label = paste0("Goals: ", Goals))) + geom_label(data = summary_data, size = 3, color = "black", aes(x = 55, y = 65, label = paste0("Total Shots: ", total_shots))) + labs(title = "Top 10 Players Total xG WWC 2023", stroke = "Goal", color = "xG")
@@ -561,11 +563,113 @@ players_data <- shots_valid_wwc2023_no_corner %>%
 ```
  
 Suggestions: Use Plotly to click on point and see which game the shot was from:
+Figure out what opposition team based on goalkeeper and add that to dataset
+
+```{r}
+library(dplyr)
+shots_valid_opponent <- shots_valid_wwc2023_no_corner %>%
+  select(id, match_id, possession_team.name, team.name, player.name.GK ) %>%
+  mutate(opponent = case_when(player.name.GK == "Mackenzie Arnold" ~ "Australia", player.name.GK == "Mary Alexandra Earps" ~ "England", player.name.GK == "Catalina Thomas Coll Lluch" ~ "Spain", player.name.GK == "Zecira Musovic" ~ "Sweden", player.name.GK == "Eunice Sakala" ~ "Zambia", player.name.GK == "María Isabel Rodríguez Rivero" ~ "Spain", player.name.GK == "Yenith Elizabett Bailey de la Cruz" ~ "Panama", player.name.GK == "Letícia Izidoro Lima da Silva" ~ "Brazil", player.name.GK == "Inês Teixeira Pereira" ~ "Portugal", player.name.GK == "Daphne van Domselaar" ~ "Netherlands", player.name.GK == "Ayaka Yamashita" ~ "Japan", player.name.GK == "Francesca Durante" ~ "Italy", player.name.GK == "Chiamaka Cynthia Nnadozie" ~ "Nigeria", player.name.GK == "Kailen Mary Iacovoni Sheridan" ~ "Canada", player.name.GK == "Catalina Pérez Jaramillo" ~ "Colombia", player.name.GK == "Rebecca Leigh Spencer" ~ "Jamaica", player.name.GK == "Pauline Peyraud Magnin" ~ "France", player.name.GK == "Solène Durand" ~ "France", player.name.GK == "Alyssa Michele Naeher" ~ "United States", player.name.GK == "Kaylin Swart" ~ "South Africa", player.name.GK == "Khadija Er-Rmichi" ~ "Morocco", player.name.GK == "Lene Christensen" ~ "Denmark", player.name.GK == "Aurora Watten Mikalsen" ~ "Norway", player.name.GK == "Gaëlle Thalmann" ~ "Switzerland", player.name.GK == "Daniela Solera Vega" ~ "Costa Rica", player.name.GK == "Catherine Musonda" ~ "Zambia", player.name.GK == "Vanina Noemí Correa" ~ "Argentina", player.name.GK == "Kerly Théus" ~ "Haiti", player.name.GK == "Yu Zhu" ~ "China PR", player.name.GK == "Patricia Isabel Sousa Barros Morais" ~ "Portugal", player.name.GK == "Kim Thanh Trần Thị" ~ "Vietnam", player.name.GK == "Courtney Brosnan" ~ "Republic of Ireland", player.name.GK == "Olivia Alexandra Davies Isip McDaniel" ~ "Philippines", player.name.GK == "Victoria Esson" ~ "New Zealand", player.name.GK == "Jung-Mi Kim" ~ "Korea Republic", player.name.GK == "Merle Frohms" ~ "Germany", player.name.GK == "Jennifer Miley Falk" ~ "Sweden", player.name.GK == "Thị Hằng Khổng" ~ "Vietnam", player.name.GK == "Young-Geul Yoon" ~ "Korea Republic", player.name.GK == "Huan Xu" ~ "China PR"))
+  
+```
+
+```{r}
+# replace NA goalkeeper
+shots_valid_opponent$opponent[40] <- "England"
+shots_valid_opponent$opponent[54] <- "Australia"
+shots_valid_opponent$opponent[238] <- "Nigeria"
+shots_valid_opponent$opponent[307] <- "Australia"
+shots_valid_opponent$opponent[308] <- "France"
+shots_valid_opponent$opponent[309] <- "Australia"
+shots_valid_opponent$opponent[310] <- "France"
+shots_valid_opponent$opponent[311] <- "Australia"
+shots_valid_opponent$opponent[312] <- "France"
+shots_valid_opponent$opponent[313] <- "Australia"
+shots_valid_opponent$opponent[314] <- "France"
+shots_valid_opponent$opponent[315] <- "Australia"
+shots_valid_opponent$opponent[317] <- "Australia"
+shots_valid_opponent$opponent[318] <- "France"
+shots_valid_opponent$opponent[319] <- "Australia"
+shots_valid_opponent$opponent[320] <- "France"
+shots_valid_opponent$opponent[321] <- "Australia"
+shots_valid_opponent$opponent[322] <- "France"
+shots_valid_opponent$opponent[323] <- "Australia"
+shots_valid_opponent$opponent[324] <- "France"
+shots_valid_opponent$opponent[326] <- "France"
+shots_valid_opponent$opponent[383] <- "Sweden"
+shots_valid_opponent$opponent[384] <- "United States"
+shots_valid_opponent$opponent[385] <- "Sweden"
+shots_valid_opponent$opponent[386] <- "United States"
+shots_valid_opponent$opponent[387] <- "Sweden"
+shots_valid_opponent$opponent[390] <- "United States"
+shots_valid_opponent$opponent[392] <- "United States"
+shots_valid_opponent$opponent[393] <- "Sweden"
+shots_valid_opponent$opponent[394] <- "United States"
+shots_valid_opponent$opponent[396] <- "United States"
+shots_valid_opponent$opponent[438] <- "Netherlands"
+shots_valid_opponent$opponent[471] <- "Japan"
+shots_valid_opponent$opponent[603] <- "Nigeria"
+shots_valid_opponent$opponent[605] <- "Nigeria"
+shots_valid_opponent$opponent[606] <- "England"
+shots_valid_opponent$opponent[607] <- "Nigeria"
+shots_valid_opponent$opponent[608] <- "England"
+shots_valid_opponent$opponent[609] <- "Nigeria"
+shots_valid_opponent$opponent[667] <- "Costa Rica"
+shots_valid_opponent$opponent[747] <- "Haiti"
+shots_valid_opponent$opponent[886] <- "Republic of Ireland"
+shots_valid_opponent$opponent[932] <- "Philippines"
+shots_valid_opponent$opponent[948] <- "Haiti"
+shots_valid_opponent$opponent[982] <- "Vietnam"
+shots_valid_opponent$opponent[1017] <- "Costa Rica"
+shots_valid_opponent$opponent[1080] <- "Colombia"
+shots_valid_opponent$opponent[1130] <- "South Africa"
+shots_valid_opponent$opponent[1170] <- "Argentina"
+shots_valid_opponent$opponent[1189] <- "Panama"
+shots_valid_opponent$opponent[1194] <- "Panama"
+shots_valid_opponent$opponent[1196] <- "France"
+shots_valid_opponent$opponent[1215] <- "England"
+shots_valid_opponent$opponent[1276] <- "Haiti"
+shots_valid_opponent$opponent[1328] <- "Canada"
+shots_valid_opponent$opponent[1345] <- "Philippines"
+shots_valid_opponent$opponent[1412] <- "Colombia"
+shots_valid_opponent$opponent[1552] <- "Korea Republic"
+shots_valid_opponent$opponent[1679] <- "Zambia"
+
+
+```
+
+```{r}
+look_at <- shots_valid_opponent %>%
+  filter(match_id == "3893793")
+```
 
 
 ```{r}
-shots_valid_opponent <- shots_valid_wwc2023_no_corner %>%
-  select(id, )
-  
+library(stringr)
+shots_valid_opponent$team.name <- str_remove(shots_valid_opponent$team.name, "Women's")
 ```
+
+```{r}
+# join shots_valid_wwc2023_no_corner with shots_valid_opponent to get opponent information added to dataset  
+
+shots_valid_wwc2023_test_1 <- full_join(shots_valid_opponent, shots_valid_wwc2023_no_corner, by = "id")
+```
+
+```{r}
+# use plotly for specific players
+
+library(plotly)
+library(ggsoccer)
+
+players_data <- shots_valid_wwc2023_test_1 %>%
+  filter(player.name %in% c("Jill Roord"))
+
+plotly_shot_map <- ggplot(data = players_data, aes(x = location.x, y = location.y, color = my.xG$Goal, stroke = is.goal_numeric, label = opponent)) + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5)
+
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label"))
+```
+
+
+
 
