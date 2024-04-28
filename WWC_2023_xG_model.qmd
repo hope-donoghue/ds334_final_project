@@ -573,7 +573,7 @@ players_data <- shots_valid_wwc2023_no_corner %>%
 
 ```
  
-Suggestions: Use Plotly to click on point and see which game the shot was from:
+## Suggestions: Use Plotly to click on point and see which game the shot was from:
 Figure out what opposition team based on goalkeeper and add that to dataset
 
 ```{r}
@@ -675,7 +675,6 @@ player_dataset <- shots_valid_wwc2023_test_1 %>%
 ```
 
 
-
 ```{r}
 # use plotly for specific players, 
 # what to do because some of the xG are 0
@@ -723,7 +722,7 @@ team_unique <- player_dataset %>%
 ```
 
 ```{r, warning = FALSE, message = FALSE}
-# shiny App
+# shiny App for random forest model with shot map for players from certain teams
 library(shiny)
 
 ui <- fluidPage(sidebarLayout(
@@ -783,34 +782,59 @@ shots_valid_wwc2023_test_1 %>%
   summarise(n())
 ```
 
+```{r}
+table(shots_valid_wwc2023_test_1$play_pattern.name, shots_valid_wwc2023_test_1$is.goal)
+```
 
 
 ```{r}
-# Trying to see how many 0s there are
+# New from 4/25
+# USE THIS
+# filter out backheel, diving header, overhead kicks, from kick off in play_pattern.name
+# as there were 0 goals there
+
+shots_valid_wwc2023_new <- shots_valid_wwc2023_test_1 %>%
+  filter(shot.technique.name != "Backheel") %>%
+  filter(shot.technique.name != "Diving Header") %>%
+  filter(shot.technique.name != "Overhead Kick") %>%
+  filter(play_pattern.name != "From Kick Off") 
+```
+
+```{r}
+# eliminate NA values
+shots_valid_wwc2023_new <- shots_valid_wwc2023_new %>%
+  filter(distance.to.gk != "NA")
+```
+
+
+```{r}
 # Logistic regression 
 
 library(broom)
 
-goal_glm <- glm(as.factor(is.goal) ~ distance.to.gk + DistToGoal + angle.to.gk + angle.to.goal + gk.to.goalline + play_pattern.name + shot.body_part.name + shot.type.name + shot.technique.name, data = shots_valid_wwc2023_test_1, family = "binomial")
 
-goal_glm |> tidy()
+goal_glm <- glm(as.factor(is.goal) ~ distance.to.gk + DistToGoal + angle.to.gk + angle.to.goal + gk.to.goalline + play_pattern.name + shot.body_part.name + shot.type.name + shot.technique.name, data = shots_valid_wwc2023_new, family = "binomial")
+
+goal_glm |> tidy() |>
+  print(n=Inf)
 
 
 ```
 
+
 ```{r}
 library(modelr)
-grid <- shots_valid_wwc2023_test_1 |>
+grid <- shots_valid_wwc2023_new %>%
   data_grid(
     distance.to.gk = seq_range(distance.to.gk, n = 5),
     DistToGoal = seq_range(DistToGoal, n = 5),
     angle.to.gk = seq_range(angle.to.gk, n = 5),
     angle.to.goal = seq_range(angle.to.goal, n = 5),
     gk.to.goalline = seq_range(gk.to.goalline, n = 5),
-    play_pattern.name = c("From Counter", "From Free Kick", "From Goal Kick", "From Keeper", "From Kick Off", "From Throw In", "Other", "Regular Play"),
+    play_pattern.name = c("From Counter", "From Goal Kick", "From Keeper", "From Throw In", "Other", "Regular Play"),
     shot.body_part.name = c("Head", "Left Foot", "Other", "Right Foot"),
     shot.type.name = c("Free Kick", "Open Play", "Penalty"),
-    shot.technique.name = c("Backheel", "Diving Header", "Half Volley", "Lob", "Normal", "Overhead Kick", "Volley"))
+    shot.technique.name = c("Half Volley", "Lob", "Normal", "Volley"))
     
 grid
 
@@ -820,7 +844,6 @@ augment <-augment(goal_glm, newdata = grid,
 augment
 
 ```
-
 
 ```{r}
 # Convert .fitted values to predicted probabilities
@@ -832,6 +855,31 @@ aug_prob
 
 ```
 
+Plot: 
 
+```{r}
+shots_valid_wwc2023_new <- shots_valid_wwc2023_new %>%
+  mutate(goal = if_else(is.goal == "Goal", 1, 0)) 
+```
 
+```{r}
+rug_goal <- shots_valid_wwc2023_new %>%
+  filter(goal == 1)
 
+rug_nogoal <- shots_valid_wwc2023_new %>%
+  filter(goal == 0)
+
+ggplot(data = aug_prob, aes(x = shot.technique.name, y = .fitted)) + geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  theme_minimal() + 
+  geom_rug(data = rug_goal, sides = "t", alpha = 0.3, aes(y = goal)) +
+  geom_rug(data = rug_nogoal, sides = "b", alpha = 0.3, aes(y = goal))  
+
+```
+
+```{r}
+# goals scored on top, goals not scored on bottom 
+ggplot(data = aug_prob, aes(x = DistToGoal, y = .fitted)) + geom_line(data = aug_prob, aes(color = play_pattern.name), linewidth = 2)  + facet_wrap(~shot.type.name)+ geom_rug(data = rug_goal, sides = "t", alpha = 0.3, aes(y = goal)) + geom_rug(data = rug_nogoal, sides = "b", alpha = 0.3, aes(y = goal))
+```
+
+Question on what the plot should look like for logistic regression...
+Plot looks very confusing with lots of lines

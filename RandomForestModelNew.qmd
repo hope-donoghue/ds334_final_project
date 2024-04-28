@@ -1,0 +1,283 @@
+---
+title: "Random Forest Model"
+author: "Hope Donoghue"
+format: html
+---
+
+Use shots_valid_wwc2023_new as dataset 
+
+```{r}
+#adding distance from goalkeeper and angle to gk
+shots_valid_wwc2023_no_corner <- shots_valid_wwc2023_no_corner %>% mutate(opposite = location.x.GK - location.x,
+                                                adjacent = location.y.GK - location.y,
+                                                hypotenuse = sqrt(opposite^2 + adjacent^2),
+                                                angle.to.gk = ifelse(location.y > location.y.GK, 180 - asin(opposite/hypotenuse)*180/3.14, asin(opposite/hypotenuse)*180/3.14),
+                                                angle.to.gk = ifelse(location.x > location.x.GK & location.y < location.y.GK, 270 - asin(opposite/hypotenuse)*180/3.14, angle.to.gk),
+                                                distance.to.gk = hypotenuse,
+                                                gk.to.goalline = sqrt((120 - location.x.GK)^2 + (40 - location.y.GK)^2)) %>%
+                                                  select(-c(opposite, adjacent, hypotenuse))
+```
+
+```{r}
+# there are a lot of columns with NA that are logical boolean values so replace with FALSE
+
+logical.vars = names(Filter(is.logical, shots_valid_wwc2023_new))
+
+df <- shots_valid_wwc2023_new[logical.vars]
+df[is.na(df)] = FALSE
+shots_valid_wwc2023_new[logical.vars] = df
+
+```
+
+
+```{r}
+# choose independent variables
+ind.vars = c("id", "is.goal", 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name')
+```
+
+
+```{r}
+library(caret) 
+library(tidyverse)
+
+shots.varsdata = subset(shots_valid_wwc2023_new, select = ind.vars)  %>%
+  drop_na()
+
+
+#splitting into test and test with 80% split
+idx = createDataPartition(shots.varsdata$is.goal, p = 0.8, list = F)
+train = shots.varsdata[idx,]
+test = shots.varsdata[-idx,]
+```
+
+
+
+```{r}
+# random forest ml model 
+# with metric being Accuracy 
+vars <-  ncol(model.matrix(is.goal ~ ., train[,!colnames(train) %in% c("id")])) -2
+
+grid <-  expand.grid(mtry = 4:vars)
+
+# five folds with cross validation 
+control <- trainControl(classProbs = TRUE, method = "cv", number = 5,
+                       allowParallel = T, summaryFunction = prSummary, savePredictions = T)
+
+rf.3_new <- train(is.goal ~ .,
+                    data = train[,!colnames(train) %in% c("id")], 
+                    method = "rf",
+                    metric = "Accuracy", # looking at highest accuracy for metric
+                    trControl = control,
+                    tuneGrid = grid,
+                    preProcess = c("center", "scale"))
+
+print(rf.3_new)
+
+```
+
+```{r}
+# predictions for test set
+xG_test.rf.3_new <- predict(rf.3_new, test, type = "prob")
+```
+
+```{r}
+# investigating why 0s
+zeroes <- xG_test.rf.3_new %>%
+  filter(Goal == 0.0000)
+```
+
+```{r}
+# adding probability of xG to dataset using the random forest model1 
+shots.varsdata$xG <- predict(rf.3_new, newdata = shots.varsdata, type = "prob")
+```
+
+```{r}
+# confusion matrix
+confusionMatrix(rf.3_new)
+```
+- We see that the accuracy is 91.39%
+
+```{r}
+# Plot 
+plot(rf.3_new)
+```
+
+```{r}
+# see how many mtry the model uses
+rf.3_new$bestTune$mtry
+```
+- The selected model uses 4 randomly selected predictors for the highest accuracy
+
+```{r}
+# feature importance 
+varImp(rf.3_new)
+```
+We see that DistToGoal and distance.to.gk are important features in the model 
+
+```{r}
+shots_valid_wwc_rf <- left_join(shots_valid_wwc2023_new, shots.varsdata[,c("id", "xG")], by = "id")
+```
+
+```{r}
+shots_valid_wwc_rf
+```
+
+```{r}
+player_dataset <- shots_valid_wwc_rf %>%
+    rename("Play_Type" = play_pattern.name) %>%
+    rename("Opponent" = opponent) 
+```
+
+```{r}
+# practice on one player for plotly
+library(plotly)
+library(ggsoccer)
+
+players_data <- player_dataset %>%
+  filter(player.name %in% c("Alessia Russo"))
+
+plotly_shot_map <- ggplot(data = players_data, aes(x = location.x, y = location.y, color = xG$Goal, stroke = is.goal_numeric, label = Play_Type, secondlabel = Opponent)) + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = "Alessia Russo xG Shot Map", color = "xG")
+
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "secondlabel"))
+```
+
+
+Table:
+```{r}
+
+player_table_shots <- player_dataset %>%
+  group_by(player.name) %>%
+  tally(name = "total_shots", sort = TRUE)
+
+player_table_goals <- player_dataset %>%
+  filter(is.goal == "Goal") %>%
+  group_by(player.name) %>%
+  tally(name = "goals", sort = TRUE)
+
+player_table_xg <- player_dataset %>%
+  group_by(player.name) %>%
+  tally(xG$Goal, name = "total_xg", sort = TRUE)
+
+summary_data_table <- left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+  mutate(xg_per_shot = sprintf("%0.2f", total_xg/total_shots))
+
+summary_data_table <- left_join(summary_data_table, player_table_goals, by = "player.name")
+```
+
+```{r}
+# to replace the NA's in the goals column with 0s
+summary_data_table_1 <- summary_data_table %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+```
+
+
+```{r}
+summary_data_table_alex_morgan <- summary_data_table_1 %>%
+  filter(player.name == "Alexandra Morgan Carrasco") %>%
+  select(total_xg, total_shots, xg_per_shot, goals)
+```
+
+
+```{r}
+# pull out levels of players and team
+library(tidyverse)
+players_unique <- player_dataset %>%
+  pull(player.name) %>%
+  unique()
+
+team_unique <- player_dataset %>% 
+  pull(team.name.x) %>%
+  unique()
+
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+# shiny App for random forest model with shot map for players from certain teams
+library(shiny)
+
+ui <- fluidPage(sidebarLayout(
+  sidebarPanel(
+    selectInput("team_sel", "Choose a team:", choices = sort(team_unique)),
+    selectInput("player_sel", "Choose a player:", choices = NULL)),
+  
+  mainPanel(plotlyOutput("shot_map"), tableOutput("table"))
+  )
+  
+)
+
+server <- function(input, output, session) {
+  
+  observeEvent(input$team_sel, {
+    
+    player_choices <- player_dataset %>% 
+      filter(team.name.x == input$team_sel) %>% 
+      distinct(player.name) %>% pull(player.name)
+    
+    updateSelectInput(inputId = "player_sel", 
+                      choices = sort(player_choices))
+  })
+  
+  player_team <- reactive({
+    player_team <- player_dataset %>%
+      filter(player.name == input$player_sel) %>%
+      filter(team.name.x == input$team_sel) 
+    
+  })
+  
+  output$shot_map <- renderPlotly({
+  plotly_shot_map <- ggplot(data = player_team(), aes(x = location.x, y = location.y, color = xG$Goal, stroke = is.goal_numeric, label = Play_Type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for ", input$player_sel), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+    
+  ggplotly(plotly_shot_map, tooltip = c("color", "label", "secondlabel"))
+  })
+  
+  output$table <- renderTable({
+    
+    player_table_shots <- player_team() %>%
+      group_by(player.name) %>%
+      tally(name = "total_shots", sort = TRUE)
+
+    player_table_goals <- player_team() %>%
+      filter(is.goal == "Goal") %>%
+      group_by(player.name) %>%
+      tally(name = "goals", sort = TRUE)
+    
+    player_table_xg <- player_team() %>%
+      group_by(player.name) %>%
+      tally(xG$Goal, name = "total_xg", sort = TRUE)
+    
+    summary_data_table <-
+      left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+      mutate(xg_per_shot = sprintf("%0.2f", total_xg / total_shots))
+    
+    summary_data_table <-
+      left_join(summary_data_table, player_table_goals, by = "player.name")
+    
+    summary_data_table_1 <- summary_data_table %>%
+      mutate_all(~replace(., is.na(.), 0)) %>%
+      select(total_xg, total_shots, xg_per_shot, goals)
+    
+  })
+  
+}
+
+shinyApp(ui, server)
+```
+
+```{r}
+# using open point shape to include stroke and color to the shot map
+# stroke argument needs numeric variables
+# Expected goals model overall for WWC 2023
+
+shots_valid_wwc_rf <- shots_valid_wwc_rf %>%
+  mutate(is.goal_numeric = if_else(is.goal == "Goal", 1.5, 0.5))
+
+a8 = pitch + geom_point(data = shots_valid_wwc_rf, aes(x = location.x, y = location.y, color = xG$Goal, stroke = is.goal_numeric), shape = 1, size = 2) + labs(color = "xG", caption = "Removed Republic of Ireland's goal directly from corner; Darker circles mean goal was scored", title = "Expected Goals Model WWC 2023")
+
+a8
+```
+
+
