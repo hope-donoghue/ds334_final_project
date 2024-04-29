@@ -783,21 +783,25 @@ shots_valid_wwc2023_test_1 %>%
 ```
 
 ```{r}
-table(shots_valid_wwc2023_test_1$play_pattern.name, shots_valid_wwc2023_test_1$is.goal)
+table(shots_valid_wwc2023_test_1$shot.type.name, shots_valid_wwc2023_test_1$is.goal)
 ```
 
 
 ```{r}
-# New from 4/25
+# New from 4/29
 # USE THIS
 # filter out backheel, diving header, overhead kicks, from kick off in play_pattern.name
 # as there were 0 goals there
+
+# filter out shot.type.name Free Kick as there is only 1 goal off a free kick along with 41 missed attempts
+# saw that this is probably confounded so drop shot.type.name entirely
 
 shots_valid_wwc2023_new <- shots_valid_wwc2023_test_1 %>%
   filter(shot.technique.name != "Backheel") %>%
   filter(shot.technique.name != "Diving Header") %>%
   filter(shot.technique.name != "Overhead Kick") %>%
-  filter(play_pattern.name != "From Kick Off") 
+  filter(play_pattern.name != "From Kick Off") %>%
+  filter(shot.type.name != "Free Kick")
 ```
 
 ```{r}
@@ -809,6 +813,7 @@ shots_valid_wwc2023_new <- shots_valid_wwc2023_new %>%
 
 ```{r}
 # Logistic regression 
+# see that shot.type.namePenalty has a very large standard error
 
 library(broom)
 
@@ -823,17 +828,29 @@ goal_glm |> tidy() |>
 
 
 ```{r}
+# Logistic regression 
+# shot.type.name probably confounded so drop it from model entirely 
+
+library(broom)
+
+
+goal_glm <- glm(as.factor(is.goal) ~ DistToGoal + play_pattern.name + shot.body_part.name + shot.technique.name, data = shots_valid_wwc2023_new, family = "binomial")
+
+goal_glm |> tidy() |>
+  print(n=Inf)
+
+
+```
+
+
+
+```{r}
 library(modelr)
 grid <- shots_valid_wwc2023_new %>%
   data_grid(
-    distance.to.gk = seq_range(distance.to.gk, n = 5),
     DistToGoal = seq_range(DistToGoal, n = 5),
-    angle.to.gk = seq_range(angle.to.gk, n = 5),
-    angle.to.goal = seq_range(angle.to.goal, n = 5),
-    gk.to.goalline = seq_range(gk.to.goalline, n = 5),
     play_pattern.name = c("From Counter", "From Goal Kick", "From Keeper", "From Throw In", "Other", "Regular Play"),
     shot.body_part.name = c("Head", "Left Foot", "Other", "Right Foot"),
-    shot.type.name = c("Free Kick", "Open Play", "Penalty"),
     shot.technique.name = c("Half Volley", "Lob", "Normal", "Volley"))
     
 grid
@@ -878,8 +895,5 @@ ggplot(data = aug_prob, aes(x = shot.technique.name, y = .fitted)) + geom_smooth
 
 ```{r}
 # goals scored on top, goals not scored on bottom 
-ggplot(data = aug_prob, aes(x = DistToGoal, y = .fitted)) + geom_line(data = aug_prob, aes(color = play_pattern.name), linewidth = 2)  + facet_wrap(~shot.type.name)+ geom_rug(data = rug_goal, sides = "t", alpha = 0.3, aes(y = goal)) + geom_rug(data = rug_nogoal, sides = "b", alpha = 0.3, aes(y = goal))
+ggplot(data = aug_prob, aes(x = DistToGoal, y = .fitted)) + geom_line(data = aug_prob, aes(color = play_pattern.name), linewidth = 2)  + facet_wrap(~shot.technique.name)+ geom_rug(data = rug_goal, sides = "t", alpha = 0.3, aes(y = goal)) + geom_rug(data = rug_nogoal, sides = "b", alpha = 0.3, aes(y = goal))
 ```
-
-Question on what the plot should look like for logistic regression...
-Plot looks very confusing with lots of lines

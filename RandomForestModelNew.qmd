@@ -32,7 +32,7 @@ shots_valid_wwc2023_new[logical.vars] = df
 
 ```{r}
 # choose independent variables
-ind.vars = c("id", "is.goal", 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name')
+ind.vars = c("id", "is.goal", 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.technique.name')
 ```
 
 
@@ -86,6 +86,23 @@ zeroes <- xG_test.rf.3_new %>%
   filter(Goal == 0.0000)
 ```
 
+
+```{r}
+zeroes_1 <- shots_valid_wwc_rf %>%
+  filter(xG$Goal == 0.000)
+```
+
+```{r}
+# use plotly to see where the zeroes are as xG
+plotly_shot_map <- ggplot(data = zeroes_1, aes(x = location.x, y = location.y)) + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = "Zeroes shot map")
+
+ggplotly(plotly_shot_map)
+```
+It seems like there is a random scatter and no particular reason why the zeroes are there. Need to investigate this further. 
+
+
+
+
 ```{r}
 # adding probability of xG to dataset using the random forest model1 
 shots.varsdata$xG <- predict(rf.3_new, newdata = shots.varsdata, type = "prob")
@@ -95,7 +112,7 @@ shots.varsdata$xG <- predict(rf.3_new, newdata = shots.varsdata, type = "prob")
 # confusion matrix
 confusionMatrix(rf.3_new)
 ```
-- We see that the accuracy is 91.39%
+- We see that the accuracy is 91.97%
 
 ```{r}
 # Plot 

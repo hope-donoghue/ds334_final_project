@@ -1,0 +1,20 @@
+---
+title: "Building Expected Goal Models for Women's World Cup 2023 Data"
+author: "Hope Donoghue"
+format: revealjs
+---
+
+## Data 
+
+* R package called StatsBombR
+
+* Event data from 64 matches with 226,146 observations and 100 variables
+
+* Variables of interest: 
+  - 'is.goal', 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name'
+
+## Visualization 1
+
+
+
+## Visualization 2 
