@@ -783,7 +783,7 @@ shots_valid_wwc2023_test_1 %>%
 ```
 
 ```{r}
-table(shots_valid_wwc2023_test_1$shot.type.name, shots_valid_wwc2023_test_1$is.goal)
+table(shots_valid_wwc2023_new$play_pattern.name, shots_valid_wwc2023_new$is.goal)
 ```
 
 
@@ -834,7 +834,7 @@ goal_glm |> tidy() |>
 library(broom)
 
 
-goal_glm <- glm(as.factor(is.goal) ~ DistToGoal + play_pattern.name + shot.body_part.name + shot.technique.name, data = shots_valid_wwc2023_new, family = "binomial")
+goal_glm <- glm(as.factor(is.goal) ~ DistToGoal + AngleToGoal + DistToKeeper + AngleToKeeper + play_pattern.name + shot.body_part.name + shot.technique.name, data = shots_valid_wwc2023_new, family = "binomial")
 
 goal_glm |> tidy() |>
   print(n=Inf)
@@ -843,37 +843,73 @@ goal_glm |> tidy() |>
 ```
 
 
+```{r}
+# Logistic regression part 2
+# shot.type.name probably confounded so drop it from model entirely 
+# indicator variable
+
+library(broom)
+
+ind.vars2 = c("id", 'goal', 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'play_pattern.name', 'shot.technique.name', 'shot.body_part.name')
+
+shots.varsdata_log = subset(shots_valid_wwc2023_new, select = ind.vars2)  %>%
+  drop_na()
+
+
+#splitting into test and test with 80% split
+idx_log = createDataPartition(shots.varsdata_log$goal, p = 0.8, list = F)
+train_log = shots.varsdata_log[idx_log,]
+test_log = shots.varsdata_log[-idx_log,]
+
+
+goal_glm <- glm(goal ~ DistToGoal + angle.to.goal + distance.to.gk + angle.to.gk + play_pattern.name + shot.technique.name + shot.body_part.name, data = train_log, family = "binomial")
+
+goal_glm |> tidy() |>
+  print(n=Inf)
+```
+
 
 ```{r}
 library(modelr)
-grid <- shots_valid_wwc2023_new %>%
-  data_grid(
-    DistToGoal = seq_range(DistToGoal, n = 5),
-    play_pattern.name = c("From Counter", "From Goal Kick", "From Keeper", "From Throw In", "Other", "Regular Play"),
-    shot.body_part.name = c("Head", "Left Foot", "Other", "Right Foot"),
-    shot.technique.name = c("Half Volley", "Lob", "Normal", "Volley"))
-    
-grid
 
-augment <-augment(goal_glm, newdata = grid,
+augment <-augment(goal_glm, newdata = test_log,
                     se_fit = TRUE)
 
 augment
-
 ```
 
 ```{r}
 # Convert .fitted values to predicted probabilities
 
 aug_prob <- augment %>%
-  mutate(.fitted = (exp(.fitted)/(1+exp(.fitted))))
+  mutate(.fitted = round(exp(.fitted)/(1+exp(.fitted)), 4))
 
 aug_prob
 
 ```
 
-Plot: 
+```{r}
+shots.varsdata_log <- augment(goal_glm, newdata = shots.varsdata_log, se_fit = TRUE) %>%
+  mutate(.fitted = round(exp(.fitted)/(1+exp(.fitted)), 4))
+  
+```
 
+
+```{r}
+# new dataset to USE!!!
+shots_valid_wwc_log <- left_join(shots_valid_wwc2023_new, shots.varsdata_log, by = "id")
+```
+
+
+```{r}
+shots_valid_wwc2023_new <- shots_valid_wwc2023_new %>%
+  mutate(goal = if_else(is.goal == "Goal", 1, 0))
+```
+
+
+
+
+Plot: 
 ```{r}
 shots_valid_wwc2023_new <- shots_valid_wwc2023_new %>%
   mutate(goal = if_else(is.goal == "Goal", 1, 0)) 

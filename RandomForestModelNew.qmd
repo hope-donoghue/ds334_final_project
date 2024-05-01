@@ -32,7 +32,11 @@ shots_valid_wwc2023_new[logical.vars] = df
 
 ```{r}
 # choose independent variables
-ind.vars = c("id", "is.goal", 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.technique.name')
+ind.vars = c("id", 'is.goal', 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.technique.name')
+```
+
+```{r}
+ind.vars1 = c("id", 'is.goal', 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'play_pattern.name', 'shot.technique.name', 'shot.body_part.name')
 ```
 
 
@@ -40,7 +44,7 @@ ind.vars = c("id", "is.goal", 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'an
 library(caret) 
 library(tidyverse)
 
-shots.varsdata = subset(shots_valid_wwc2023_new, select = ind.vars)  %>%
+shots.varsdata = subset(shots_valid_wwc2023_new, select = ind.vars1)  %>%
   drop_na()
 
 
@@ -48,6 +52,7 @@ shots.varsdata = subset(shots_valid_wwc2023_new, select = ind.vars)  %>%
 idx = createDataPartition(shots.varsdata$is.goal, p = 0.8, list = F)
 train = shots.varsdata[idx,]
 test = shots.varsdata[-idx,]
+
 ```
 
 
@@ -88,11 +93,6 @@ zeroes <- xG_test.rf.3_new %>%
 
 
 ```{r}
-zeroes_1 <- shots_valid_wwc_rf %>%
-  filter(xG$Goal == 0.000)
-```
-
-```{r}
 # use plotly to see where the zeroes are as xG
 plotly_shot_map <- ggplot(data = zeroes_1, aes(x = location.x, y = location.y)) + annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = "Zeroes shot map")
 
@@ -112,7 +112,7 @@ shots.varsdata$xG <- predict(rf.3_new, newdata = shots.varsdata, type = "prob")
 # confusion matrix
 confusionMatrix(rf.3_new)
 ```
-- We see that the accuracy is 91.97%
+- We see that the accuracy is 91.57%
 
 ```{r}
 # Plot 
@@ -123,7 +123,7 @@ plot(rf.3_new)
 # see how many mtry the model uses
 rf.3_new$bestTune$mtry
 ```
-- The selected model uses 4 randomly selected predictors for the highest accuracy
+- The selected model uses 10 randomly selected predictors for the highest accuracy
 
 ```{r}
 # feature importance 
@@ -138,6 +138,14 @@ shots_valid_wwc_rf <- left_join(shots_valid_wwc2023_new, shots.varsdata[,c("id",
 ```{r}
 shots_valid_wwc_rf
 ```
+
+```{r}
+# MSE between random forest xg predictions and statsbomb predictions
+
+(sum((shots_valid_wwc_rf$shot.statsbomb_xg - shots_valid_wwc_rf$xG$Goal)^2)/1540)
+```
+MSE is 0.028.
+
 
 ```{r}
 player_dataset <- shots_valid_wwc_rf %>%
@@ -296,5 +304,7 @@ a8 = pitch + geom_point(data = shots_valid_wwc_rf, aes(x = location.x, y = locat
 
 a8
 ```
+
+
 
 

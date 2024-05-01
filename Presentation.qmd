@@ -1,8 +1,53 @@
 ---
-title: "Building Expected Goal Models for Women's World Cup 2023 Data"
+title: "Building an Expected Goal Model for Women's World Cup 2023 Data"
 author: "Hope Donoghue"
 format: revealjs
 ---
+
+```{r, warning=FALSE, echo = FALSE, message=FALSE}
+
+library(dplyr)
+library(tidyverse)
+library(plotly)
+library(ggsoccer)
+library(broom)
+library(stringr)
+library(SBpitch)
+library(ggplot2)
+
+pitch = create_Pitch("#ffffff", "#A9A9A9", "#ffffff", "#000000", BasicFeatures = FALSE, goaltype = "box")
+
+shots_valid_wwc_log_new <- read_csv("shots_valid_wwc_log.csv")
+
+player_dataset_log <- shots_valid_wwc_log_new %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y)
+
+
+player_table_shots <- player_dataset_log %>%
+  group_by(player.name) %>%
+  tally(name = "total_shots", sort = TRUE)
+
+player_table_goals <- player_dataset_log %>%
+  filter(is.goal == "Goal") %>%
+  group_by(player.name) %>%
+  tally(name = "goals", sort = TRUE)
+
+player_table_xg <- player_dataset_log %>%
+  group_by(player.name) %>%
+  tally(Predicted_xG, name = "total_xG", sort = TRUE)
+
+summary_data_table <- left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+  mutate(xG_per_shot = sprintf("%0.2f", total_xG/total_shots))
+
+summary_data_table_log <- left_join(summary_data_table, player_table_goals, by = "player.name") %>%
+   mutate_all(~replace(., is.na(.), 0))
+
+
+```
+
 
 ## Data 
 
@@ -10,11 +55,113 @@ format: revealjs
 
 * Event data from 64 matches with 226,146 observations and 100 variables
 
-* Variables of interest: 
-  - 'is.goal', 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'gk.to.goalline', 'play_pattern.name','shot.body_part.name', 'shot.type.name', 'shot.technique.name'
+* Focusing on shots - 1540 shots throughout the tournament
+
+* Variables of interest for building a logistic regression model: 
+  - goal, distance.to.gk, DistToGoal, angle.to.gk, angle.to.goal, gk.to.goalline, play_pattern.name, shot.body_part.name, shot.technique.name
+  
+  
+  
+## Questions of Interest
+
+* Goal: Build an expected goals (xG) model using event data from the WWC 2023 to predict the probability of a shot being a goal. Higher xG, means higher chance of a shot becoming a goal and more of a quality shot. 
+
+* Which areas on the soccer field have the highest probability of scoring a goal and why? 
+
+* Which shot did the model predict to have the highest probability of scoring a goal and why?
+
+* Which players have the highest xG scoring rates from the tournament?
+
 
 ## Visualization 1
+```{r, echo = FALSE, warning= FALSE, message= FALSE}
 
+# using open point shape to include stroke and color to the shot map
+# stroke argument needs numeric variables
+# Expected goals model overall for WWC 2023
 
+shots_valid_wwc_log_new <- shots_valid_wwc_log_new %>%
+  mutate(is.goal_numeric = if_else(is.goal == "Goal", 1.5, 0.5))
+
+a8 = pitch + geom_point(data = shots_valid_wwc_log_new, aes(x = location.x, y = location.y, color = .fitted, stroke = is.goal_numeric), shape = 1, size = 2) + labs(color = "Probability of Goal \n (xG)", caption = "Removed Republic of Ireland's goal directly from corner; Darker filled in circles mean goal was scored", title = "Expected Goals Model WWC 2023") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+a8
+```
 
 ## Visualization 2 
+
+* Highest predicted probability shot from model: 83.52%
+
+* 1 of only 4 lobbed goals in dataset 
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+
+player_dataset_log_new <- shots_valid_wwc_log_new %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y) %>%
+    rename("Shot_type" = shot.technique.name.x)
+
+
+lieke_martens <- player_dataset_log_new %>%
+  filter(player.name == "Lieke Martens")
+
+plotly_shot_map <- ggplot(data = lieke_martens, aes(x = location.x, y = location.y, color = Predicted_xG, stroke = is.goal_numeric, label = Play_Type, thirdlabel = Shot_body_part, fourthlabel = Shot_type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for Lieke Martens"), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
+```
+
+## Visualization 3
+
+* Top goal-scorer at tournament 
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+
+player_dataset_log_new <- shots_valid_wwc_log_new %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y) %>%
+    rename("Shot_type" = shot.technique.name.x)
+
+
+hinata_miyazawa <- player_dataset_log_new %>%
+  filter(player.name == "Hinata Miyazawa")
+
+plotly_shot_map <- ggplot(data = hinata_miyazawa, aes(x = location.x, y = location.y, color = Predicted_xG, stroke = is.goal_numeric, label = Play_Type, thirdlabel = Shot_body_part, fourthlabel = Shot_type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for Hinata Miyazawa"), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
+```
+
+## Table
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+library(kableExtra)
+table <- summary_data_table_log %>%
+  arrange(desc(goals)) %>%
+  slice(1:5)
+
+kable(table, table.attr = 'data-quarto-disable-processing="true"') %>% 
+  kableExtra::kable_styling(bootstrap_options = c("basic", "hover"), full_width = FALSE)
+```
+
+## Highest Total xG 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+library(kableExtra)
+table <- summary_data_table_log %>%
+  arrange(desc(total_xG)) %>%
+  slice(1:5)
+
+kable(table, table.attr = 'data-quarto-disable-processing="true"') %>% 
+  kableExtra::kable_styling(bootstrap_options = c("basic", "hover"), full_width = FALSE)
+```
+
+
+
+

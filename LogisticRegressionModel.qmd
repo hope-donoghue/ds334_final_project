@@ -1,0 +1,296 @@
+---
+title: "Logistic Regression Model"
+author: "Hope Donoghue"
+format: html
+---
+
+Dataset: shots_valid_wwc_log
+
+```{r}
+shots_valid_wwc2023_new <- shots_valid_wwc2023_new %>%
+  mutate(goal = if_else(is.goal == "Goal", 1, 0))
+```
+
+
+```{r}
+# Logistic regression part 2
+# shot.type.name probably confounded so drop it from model entirely 
+# indicator variable
+
+library(broom)
+
+ind.vars2 = c("id", 'goal', 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'play_pattern.name', 'shot.technique.name', 'shot.body_part.name')
+
+shots.varsdata_log = subset(shots_valid_wwc2023_new, select = ind.vars2)  %>%
+  drop_na()
+
+
+#splitting into test and test with 80% split
+idx_log = createDataPartition(shots.varsdata_log$goal, p = 0.8, list = F)
+train_log = shots.varsdata_log[idx_log,]
+test_log = shots.varsdata_log[-idx_log,]
+
+
+goal_glm <- glm(goal ~ DistToGoal + angle.to.goal + distance.to.gk + angle.to.gk + play_pattern.name + shot.technique.name + shot.body_part.name, data = train_log, family = "binomial")
+
+goal_glm |> tidy() |>
+  print(n=Inf)
+```
+
+
+```{r}
+library(modelr)
+
+augment <-augment(goal_glm, newdata = test_log,
+                    se_fit = TRUE)
+
+augment
+```
+
+```{r}
+# Convert .fitted values to predicted probabilities
+
+aug_prob <- augment %>%
+  mutate(.fitted = round(exp(.fitted)/(1+exp(.fitted)), 4))
+
+aug_prob
+
+```
+
+```{r}
+shots.varsdata_log <- augment(goal_glm, newdata = shots.varsdata_log, se_fit = TRUE) %>%
+  mutate(.fitted = round(exp(.fitted)/(1+exp(.fitted)), 4))
+```
+
+
+```{r}
+# new dataset to USE!!!
+shots_valid_wwc_log <- left_join(shots_valid_wwc2023_new, shots.varsdata_log, by = "id") 
+```
+
+```{r}
+# eliminate unnecessary variables with matrix and list notation
+shots_valid_wwc_log_new <- shots_valid_wwc_log %>%
+  select(-c(related_events, location, shot.end_location, shot.freeze_frame, tactics.lineup, pass.end_location, carry.end_location, goalkeeper.end_location, out, my.xG))
+```
+
+```{r}
+# create csv file so don't have to keep going back and forth 
+write_csv(shots_valid_wwc_log_new, file = "shots_valid_wwc_log.csv")
+```
+
+
+
+```{r}
+player_dataset_log <- shots_valid_wwc_log %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y) %>%
+    rename("Shot_type" = shot.technique.name.x)
+```
+
+```{r}
+# MSE between logistic xg predictions and statsbomb predictions
+
+(sum((shots_valid_wwc_log$shot.statsbomb_xg - shots_valid_wwc_log$.fitted)^2)/1540)
+```
+MSE is 0.009
+
+Table:
+```{r}
+
+player_table_shots <- player_dataset_log %>%
+  group_by(player.name) %>%
+  tally(name = "total_shots", sort = TRUE)
+
+player_table_goals <- player_dataset_log %>%
+  filter(is.goal == "Goal") %>%
+  group_by(player.name) %>%
+  tally(name = "goals", sort = TRUE)
+
+player_table_xg <- player_dataset_log %>%
+  group_by(player.name) %>%
+  tally(Predicted_xG, name = "total_xG", sort = TRUE)
+
+summary_data_table <- left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+  mutate(xG_per_shot = sprintf("%0.2f", total_xG/total_shots))
+
+summary_data_table_log <- left_join(summary_data_table, player_table_goals, by = "player.name") %>%
+   mutate_all(~replace(., is.na(.), 0))
+```
+
+
+
+```{r}
+# pull out levels of players and team
+library(tidyverse)
+players_unique <- player_dataset_log %>%
+  pull(player.name) %>%
+  unique()
+
+team_unique <- player_dataset_log %>% 
+  pull(team.name.x) %>%
+  unique()
+
+```
+
+
+
+```{r, warning = FALSE, message = FALSE}
+# shiny App for logistic regression with shot map for players from certain teams
+library(shiny)
+library(plotly)
+library(ggsoccer)
+
+ui <- fluidPage(sidebarLayout(
+  sidebarPanel(
+    selectInput("team_sel", "Choose a team:", choices = sort(team_unique)),
+    selectInput("player_sel", "Choose a player:", choices = NULL)),
+  
+  mainPanel(plotlyOutput("shot_map"), tableOutput("table"))
+  )
+  
+)
+
+server <- function(input, output, session) {
+  
+  observeEvent(input$team_sel, {
+    
+    player_choices <- player_dataset_log %>% 
+      filter(team.name.x == input$team_sel) %>% 
+      distinct(player.name) %>% pull(player.name)
+    
+    updateSelectInput(inputId = "player_sel", 
+                      choices = sort(player_choices))
+  })
+  
+  player_team <- reactive({
+    player_team <- player_dataset_log %>%
+      filter(player.name == input$player_sel) %>%
+      filter(team.name.x == input$team_sel) 
+    
+  })
+  
+  output$shot_map <- renderPlotly({
+  plotly_shot_map <- ggplot(data = player_team(), aes(x = location.x, y = location.y, color = Predicted_xG, stroke = is.goal_numeric, label = Play_Type, thirdlabel = Shot_body_part, fourthlabel = Shot_type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" Expected Goal Model: \n Shot Map for ", input$player_sel), color = "Probability of Goal \n (xG)") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+    
+  ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
+  })
+  
+  output$table <- renderTable({
+    
+    player_table_shots <- player_team() %>%
+      group_by(player.name) %>%
+      tally(name = "total_shots", sort = TRUE)
+
+    player_table_goals <- player_team() %>%
+      filter(is.goal == "Goal") %>%
+      group_by(player.name) %>%
+      tally(name = "goals", sort = TRUE)
+    
+    player_table_xg <- player_team() %>%
+      group_by(player.name) %>%
+      tally(Predicted_xG, name = "total_xG", sort = TRUE)
+    
+    summary_data_table <-
+      left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+      mutate(xG_per_shot = sprintf("%0.2f", total_xG / total_shots))
+    
+    summary_data_table <-
+      left_join(summary_data_table, player_table_goals, by = "player.name") %>%
+      mutate_all(~replace(., is.na(.), 0)) %>%
+      select(total_xG, total_shots, xG_per_shot, goals)
+    
+  })
+  
+}
+
+shinyApp(ui, server)
+```
+
+Specific player shot map:
+
+```{r}
+alex_morgan <- player_dataset_log %>%
+      filter(player.name == "Alexandra Morgan Carrasco")
+```
+
+```{r}
+hinata_miyazawa <- player_dataset_log %>%
+  filter(player.name == "Hinata Miyazawa")
+```
+
+```{r}
+alessia_russo <- player_dataset_log %>%
+  filter(player.name == "Alessia Russo")
+```
+
+
+```{r}
+plotly_shot_map <- ggplot(data = alex_morgan, aes(x = location.x, y = location.y, color = xG_predicted, stroke = is.goal_numeric, label = Play_Type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for Alex Morgan"), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "secondlabel"))
+```
+
+
+```{r}
+plotly_shot_map <- ggplot(data = hinata_miyazawa, aes(x = location.x, y = location.y, color = xG_predicted, stroke = is.goal_numeric, label = Play_Type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for Hinata Miyazawa"), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "secondlabel"))
+```
+
+```{r}
+plotly_shot_map <- ggplot(data = alessia_russo, aes(x = location.x, y = location.y, color = xG_predicted, stroke = is.goal_numeric, label = Play_Type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for Alessia Russo"), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "secondlabel"))
+```
+
+
+```{r}
+# using open point shape to include stroke and color to the shot map
+# stroke argument needs numeric variables
+# Expected goals model overall for WWC 2023
+
+shots_valid_wwc_log <- shots_valid_wwc_log %>%
+  mutate(is.goal_numeric = if_else(is.goal == "Goal", 1.5, 0.5))
+
+a8 = pitch + geom_point(data = shots_valid_wwc_log, aes(x = location.x, y = location.y, color = .fitted, stroke = is.goal_numeric), shape = 1, size = 2) + labs(color = "Probability of Goal \n (xG)", caption = "Removed Republic of Ireland's goal directly from corner; Darker filled in circles mean goal was scored", title = "Expected Goals Model WWC 2023") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+a8
+```
+
+Investigating higher probability shots
+```{r}
+# higher probability for lob shots why 83% in model only 4 lobs in all of dataset and this went in
+# https://www.foxsports.com/watch/play-68cf11a10000102
+shots.varsdata_log %>%
+  group_by(shot.technique.name, goal) %>%
+  summarise(n())
+```
+
+```{r}
+# south africa goal vs sweden - tap in with chest - high probability 
+# https://www.foxsports.com/watch/play-688491e38000102
+goal_of_interest <- shots_valid_wwc_log %>%
+  filter(id == "3930cdb9-7755-4f95-b1b1-1babbedb9238")
+```
+
+```{r}
+# Costa Rica vs Zambia
+# From corner 
+second_goal_interest <- shots_valid_wwc_log %>%
+  filter(id == "db185c6e-74b6-436d-9720-9c4da1517f3e")
+
+```
+
+
+
+
+
+
+
