@@ -4,4 +4,49 @@ author: "Hope Donoghue"
 format: gfm
 ---
 
-sadsa
+Which area on the soccer field has the highest probability of a goal occurring? This project explores this question along with many others related to goal probabilities in soccer. For this project, I built an expected goals model for the 2023 Women's World Cup using logistic regression, and created a variety of visuals like the one shown below. An expected goals model predicts the probability that a shot will result in a goal based on the characteristics of that shot and the events leading up to it. The data that I used for this project comes from StatsBomb and it is event data. In addition to building the model, I also built a Shiny App that displays the expected goal probabilities (xG values) for each shot that a player took in the 2023 Women's World Cup. Overall, I found that higher probability shots come from within the 18 yard box and that xG is an effective metric for measuring a player's performance.   
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# read in libraries
+library(readr)
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(plotly)
+library(ggsoccer)
+library(broom)
+library(stringr)
+library(modelr)
+library(SBpitch)
+library(ggplot2)
+library(caret)
+```
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# read in the csv file that contains the cleaned up data set for all shots in WWC 2023
+shots_valid_wwc2023_new <- read_csv("shots_valid_wwc2023_new.csv")
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+shots_valid_wwc_log <- read_csv("shots_valid_wwc_log.csv")
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+# using an outline of a soccer pitch 
+pitch = create_Pitch("#ffffff", "#A9A9A9", "#ffffff", "#000000", BasicFeatures = FALSE, goaltype = "box")
+```
+
+```{r, echo = FALSE, warning= FALSE, message= FALSE}
+# showing the shot locations of all shots in WWC 2023 to answer
+# where the most probable location of scoring a goal is
+# using open point shape to include stroke and color to the shot map
+
+shots_valid_wwc_log_new <- shots_valid_wwc_log %>%
+  mutate(is.goal_numeric = if_else(is.goal == "Goal", 1.5, 0.5))
+
+a8 = pitch + geom_point(data = shots_valid_wwc_log_new, aes(x = location.x, y = location.y, color = .fitted, stroke = is.goal_numeric), shape = 1, size = 2) + labs(color = "Probability of Goal \n (xG)", caption = "Note: Removed Republic of Ireland's goal directly from corner \n Note: Darker filled in circles mean goal was scored") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1)) + theme(plot.title = element_text(face = "bold", size = 20))
+
+a8
+```
+
