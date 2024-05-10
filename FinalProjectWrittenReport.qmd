@@ -1,0 +1,406 @@
+---
+title: "Expected Goals Model for the 2023 Women's World Cup"
+author: "Hope Donoghue"
+format: 
+  html:
+    theme: minty 
+    embed-resources: true
+---
+
+Find the link to the GitHub repository for this project [here](https://github.com/hope-donoghue/ds334_final_project). 
+
+# Abstract
+
+Which area on the soccer field has the highest probability of a goal occurring? This project explores this question along with many others related to goal probabilities in soccer. For this project, I built an expected goals model for the 2023 Women's World Cup using logistic regression. An expected goals model predicts the probability that a shot will result in a goal based on the characteristics of that shot and the events leading up to it. The data that I used for this project comes from StatsBomb and it is event data. In addition to building the model, I also built a Shiny App that displays the expected goal probabilities (xG values) for each shot that a player took in the 2023 Women's World Cup. Overall, I found that the higher probability shots come from within the 18 yard box. 
+
+
+# Introduction
+
+As an avid soccer fan, I decided to build an expected goals model for the 2023 Women's World Cup. One of my goals in life is to make it to one of the Women's World Cups. I was pretty close to achieving this goal last year when the World Cup was in Australia and New Zealand. I studied abroad last spring semester in New Zealand, but my program unfortunately ended two months before the World Cup started. Anyways, I have always wanted to build an expected goals model because I have heard from attending various sports analytics conferences that expected goals (xG) is a better metric for understanding the overall performance of a player than basic statistics like shots, shots on target and possession. A higher xG means that the shot has a higher probability of being a goal and is considered a high quality shot. For example, a shot with an xG value of 0.9 is one that we would generally expect to be converted nine times in every 10 attempts. If a player has a high total xG then this means that they took high probability shots and were well involved in the game. The expected goals metric (xG) helps identify players that played really well and created dangerous chances but might not have scored. 
+
+The data set that I used to create my expected goals model came from a R package called StatsBombR. This is a free package in R that contains open sourced event data from various soccer competitions. Here is a link to the GitHub repository site for StatsBomb R. [Click here.](https://github.com/statsbomb/StatsBombR)
+
+The variables I will be using for my logistic regression model are:  
+
+| variables | description 
+|-----------|-----------|
+|goal  | 1 if Yes, 0 if No |
+| id | specific id for identifying shot in StatsBombR database|
+|distance.to.gk |  the distance in meters from shot location to goalkeeper|  
+| DistToGoal | the distance in meters from shot location to goal |
+|angle.to.gk |  the angle in degrees from shot location to goalkeeper |  
+|angle.to.goal |  the angle in degrees from shot location to goal |
+|play_pattern.name | type of play (From Free Kick, From Corner, From Goal Kick, From Throw In, Regular Play, From Counter, From Keeper, Other) |
+|shot.body_part.name |  type of body part used for shot (Right Foot, Left Foot, Head, Other|
+|shot.technique.name | name of shot type (Half Volley, Normal, Volley, Lob) |
+
+
+My questions of interest for this project are: 
+
+* Which area on the soccer field has the highest probability of scoring a goal and why? 
+
+* Which shot did the model predict to have the highest probability of scoring a goal (xG) and why?
+
+* Which players have the highest total xG scoring rates from the tournament?
+
+# Logistic Regression Model
+
+To build the logistic regression model, I first loaded in the data from the StatsBombR package and filtered by shots from the 2023 WWC. There are 1540 shots, which is the number of observations in the data set.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+# read in libraries
+library(readr)
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(plotly)
+library(ggsoccer)
+library(broom)
+library(stringr)
+library(modelr)
+library(SBpitch)
+library(ggplot2)
+library(caret)
+```
+
+
+```{r, echo = TRUE, eval = FALSE}
+# Getting the data from StatsBombR for Women's World Cup 2023
+library(tidyverse)
+library(StatsBombR)
+Comp = FreeCompetitions()
+Matches = FreeMatches(Comp)
+
+wwc_2023 <- Matches %>%
+  filter(competition.competition_name == "Women's World Cup") %>%
+  filter(season.season_name == "2023")
+
+all_events_wwc2023 <- data.frame()
+for(i in 1:nrow(wwc_2023)){
+  #if(i %in% c(error_game)) next
+  temp = get.matchFree(wwc_2023[i,])
+  print(i)
+  temp = allclean(temp)
+  all_events_wwc2023 = bind_rows(all_events_wwc2023, temp)
+  rm(temp)
+}
+
+# only keeping shots and specifying whether the shot was a goal or not
+shots <- all_events_wwc2023 %>%
+  filter(type.name == "Shot") %>%
+  mutate(is.goal = ifelse(shot.outcome.name == "Goal", 1, 0))
+```
+
+```{r, message = FALSE, warning = FALSE}
+# read in the csv file that contains the cleaned up data set for all shots in WWC 2023
+shots_valid_wwc2023_new <- read_csv("shots_valid_wwc2023_new.csv")
+```
+
+Next, I fit the logistic regression model with 'goal' as the response variable. I split the data into test and train data sets with 80% of the data set going to the train set. The model summary is below. 
+
+```{r, echo = TRUE, eval = FALSE}
+
+# variables
+ind.vars2 = c('id', 'goal', 'distance.to.gk', 'DistToGoal', 'angle.to.gk', 'angle.to.goal', 'play_pattern.name', 'shot.technique.name', 'shot.body_part.name')
+
+shots.varsdata_log = subset(shots_valid_wwc2023_new, select = ind.vars2)  %>%
+  drop_na()
+
+
+#splitting into test and test sets with 80% split to train set
+idx_log = createDataPartition(shots.varsdata_log$goal, p = 0.8, list = F)
+train_log = shots.varsdata_log[idx_log,]
+test_log = shots.varsdata_log[-idx_log,]
+
+
+# fitting the logistic regression model with the train data set
+goal_glm <- glm(goal ~ DistToGoal + angle.to.goal + distance.to.gk + angle.to.gk + play_pattern.name + shot.technique.name + shot.body_part.name, data = train_log, family = "binomial")
+
+goal_glm_table <- goal_glm %>%
+  tidy()
+
+# creating a table outputting the model summary
+saveRDS(goal_glm_table, file = "goal_glm_table.rds")
+
+```
+
+```{r, echo = TRUE, eval = TRUE}
+# show summary output from model
+readRDS("goal_glm_table.rds") %>% kable()
+```
+
+After I fitted the model, I converted from the log odds scale to predicted probabilities. These values represent the expected goals (xG) metric for each shot. 
+
+```{r, eval = FALSE, echo = TRUE}
+# get predicted values using test set
+augment <-augment(goal_glm, newdata = test_log,
+                    se_fit = TRUE)
+
+augment
+```
+
+```{r, eval = FALSE, echo = TRUE}
+# Convert from log odds scale to predicted probabilities
+aug_prob <- augment %>%
+  mutate(.fitted = round(exp(.fitted)/(1+exp(.fitted)), 4))
+
+shots.varsdata_log <- augment(goal_glm, newdata = shots.varsdata_log, se_fit = TRUE) %>%
+  mutate(.fitted = round(exp(.fitted)/(1+exp(.fitted)), 4))
+```
+
+```{r, eval= FALSE, echo = TRUE}
+# join the two data sets together to now include xG for each shot 
+shots_valid_wwc_log <- left_join(shots_valid_wwc2023_new, shots.varsdata_log, by = "id") 
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+shots_valid_wwc_log <- read_csv("shots_valid_wwc_log.csv")
+```
+
+# Shot Locations from WWC 2023
+
+```{r, warning = FALSE, message = FALSE}
+# using an outline of a soccer pitch 
+pitch = create_Pitch("#ffffff", "#A9A9A9", "#ffffff", "#000000", BasicFeatures = FALSE, goaltype = "box")
+```
+
+```{r, warning= FALSE, message= FALSE}
+# showing the shot locations of all shots in WWC 2023 to answer
+# where the most probable location of scoring a goal is
+# using open point shape to include stroke and color to the shot map
+
+shots_valid_wwc_log_new <- shots_valid_wwc_log %>%
+  mutate(is.goal_numeric = if_else(is.goal == "Goal", 1.5, 0.5))
+
+a8 = pitch + geom_point(data = shots_valid_wwc_log_new, aes(x = location.x, y = location.y, color = .fitted, stroke = is.goal_numeric), shape = 1, size = 2) + labs(color = "Probability of Goal \n (xG)", caption = "Note: Removed Republic of Ireland's goal directly from corner \n Note: Darker filled in circles mean goal was scored", title = "Expected Goals Model for WWC 2023") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1)) + theme(plot.title = element_text(face = "bold", size = 20))
+
+a8
+```
+
+This visualization displays the overall location on the field where all of the shots from the WWC 2023 were taken from. I colored the points by the xG values from the logistic regression model. Also, I darkened the fill of the circle if the shot was actually a goal. Additionally, I removed the Republic of Ireland's goal scored directly from a corner kick because that data point skewed the rest of the data as it was given a really high xG value as a result. Scoring from a corner kick is a rare event and therefore its xG value should be lower rather than higher. The logistic regression model that I built only has 1540 shots, so given that very few goals from a corner are successful and one of them happened to be in this data set, a higher xG value was given to that point. I decided that it was best to remove this data point from the data so the other data points were not skewed anymore. Overall, I see from the visualization that the closer the shot is to the goal, the higher the probability of the shot turning into a goal. I see more red circles (higher xG values) closer to the goal, while more blue circles (lower xG values) are farther away from the goal. There were still a few goals (darker blue circles) scored from farther away from the goal (outside the 18 yard box), but certainly I see more goals (darker filled in circles) were scored from within the 18 yard box closer to the goal. Ultimately this finding is not surprising because in women's soccer most goals tend to be from within the 18 yard box as there is more goal to aim for and a higher probability of scoring. It is rare to see a women score from outside the 18 yard box because typically the defenders are in the way and the goalkeeper can easily stop the ball. The expected goals model confirmed my prior belief about the optimal location to shoot from.
+
+# Highest xG Shot from Model
+
+```{r}
+# find the highest xG shot
+shots_valid_wwc_log_new %>%
+  arrange(desc(.fitted)) %>%
+  slice(1) %>%
+  select(.fitted, shot.technique.name.x, shot.type.name, player.name, team.name.x, opponent, goal.x, distance.to.goal) %>%
+  rename("xG" = '.fitted', "Shot Technique" = shot.technique.name.x, "Shot Type" = shot.type.name, "Name" = player.name, "Team" = team.name.x, "Opponent" = opponent, "Goal?" = goal.x, "Distance to Goal" = distance.to.goal) %>%
+  kable()
+```
+
+I see that the shot that has the highest xG in the model is a lob by Lieke Martens against Vietnam that resulted in a goal. The shot has a xG of 0.8352. The video below displays the goal from the WWC 2023. Note that the video continues playing so you should stop it after the goal is done.
+
+{{< video https://www.youtube.com/watch?v=C3c-8cQzYws start="573">}}
+
+## Why does the model give this shot a high xG value? 
+To investigate this, I filtered the data set to see how many shots were lobbed ones. 
+
+```{r, message = FALSE, warning = FALSE}
+shots_valid_wwc_log_new %>%
+  group_by(shot.technique.name.x, goal.x) %>%
+  summarise(n()) %>%
+  rename("n" = 'n()', "Shot Technique" = shot.technique.name.x, "Goal?" = goal.x) %>%
+  kable()
+```
+
+I see that there are only four shots in the data set that are lobs and one of those shots resulted in a goal. Therefore, due to the small sample of lobs in the data set and that 1 out of 4 of them resulted in a goal, the model gives a higher xG value. Also, the fact that the distance to the goal is only 13.70 meters contributes to the higher xG. From the previous visualization above, I know that the closer a shot is to goal, the higher the probability of the shot being a goal. 
+
+Additionally, I was curious to see what the next highest xG value is in the model. The table below shows the top 5 highest xG values in the model. I see that that the second highest xG value is another lob at 0.674.
+
+```{r, message = FALSE, warning = FALSE}
+top_5_xg <- shots_valid_wwc_log_new %>%
+  arrange(desc(.fitted)) %>%
+  slice(1:5) %>%
+  select(.fitted, shot.technique.name.x, shot.type.name, player.name, team.name.x, opponent, goal.x, distance.to.goal) %>%
+  rename("xG" = '.fitted', "Shot Technique" = shot.technique.name.x, "Shot Type" = shot.type.name, "Name" = player.name, "Team" = team.name.x, "Opponent" = opponent, "Goal?" = goal.x, "Distance to Goal" = distance.to.goal) %>%
+  kable()
+
+top_5_xg 
+```
+
+
+# Shiny App 
+
+I built a Shiny App that displays the xG values for each shot that a player took in the 2023 Women's World Cup. A person can choose a player that they want to see a shot map for. The shot map displays the xG value associated with each shot and the user can hover over a specific shot to gain extra information about it. For example when hovering over the shot, the user can see the body part used for the shot, the opponent the shot was against and the type of play that the shot came from. The app also displays a table below the shot map that shows the number of goals, total shots, total xG and xG per shot for the selected player. xG per shot is calculated by dividing the total xG by the total shots. 
+
+```{r, warning = FALSE, message = FALSE}
+# shiny App for logistic regression with shot map for players from certain teams
+library(shiny)
+library(plotly)
+library(ggsoccer)
+
+player_dataset_log <- shots_valid_wwc_log %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y) %>%
+    rename("Shot_type" = shot.technique.name.x)
+
+# pull out levels of players and team
+players_unique <- player_dataset_log %>%
+  pull(player.name) %>%
+  unique()
+
+team_unique <- player_dataset_log %>% 
+  pull(team.name.x) %>%
+  unique()
+
+
+ui <- fluidPage(sidebarLayout(
+  sidebarPanel(
+    selectInput("team_sel", "Choose a team:", choices = sort(team_unique)),
+    selectInput("player_sel", "Choose a player:", choices = NULL)),
+  
+  mainPanel(plotlyOutput("shot_map"), tableOutput("table"))
+  )
+  
+)
+
+server <- function(input, output, session) {
+  
+  observeEvent(input$team_sel, {
+    
+    player_choices <- player_dataset_log %>% 
+      filter(team.name.x == input$team_sel) %>% 
+      distinct(player.name) %>% pull(player.name)
+    
+    updateSelectInput(inputId = "player_sel", 
+                      choices = sort(player_choices))
+  })
+  
+  player_team <- reactive({
+    player_team <- player_dataset_log %>%
+      filter(player.name == input$player_sel) %>%
+      filter(team.name.x == input$team_sel) 
+    
+  })
+  
+  output$shot_map <- renderPlotly({
+  plotly_shot_map <- ggplot(data = player_team(), aes(x = location.x, y = location.y, color = Predicted_xG, stroke = is.goal_numeric, label = Play_Type, thirdlabel = Shot_body_part, fourthlabel = Shot_type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" Expected Goal Model: \n Shot Map for ", input$player_sel), color = "Probability of Goal \n (xG)") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+    
+  ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
+  })
+  
+  output$table <- renderTable({
+    
+    player_table_shots <- player_team() %>%
+      group_by(player.name) %>%
+      tally(name = "total_shots", sort = TRUE)
+
+    player_table_goals <- player_team() %>%
+      filter(is.goal == "Goal") %>%
+      group_by(player.name) %>%
+      tally(name = "goals", sort = TRUE)
+    
+    player_table_xg <- player_team() %>%
+      group_by(player.name) %>%
+      tally(Predicted_xG, name = "total_xG", sort = TRUE)
+    
+    summary_data_table <-
+      left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+      mutate(xG_per_shot = sprintf("%0.2f", total_xG / total_shots))
+    
+    summary_data_table <-
+      left_join(summary_data_table, player_table_goals, by = "player.name") %>%
+      mutate_all(~replace(., is.na(.), 0)) %>%
+      select(total_xG, total_shots, xG_per_shot, goals)
+    
+  })
+  
+}
+
+shinyApp(ui, server)
+```
+
+# Highest Total xG Scoring Rates from Model
+
+I was interested in seeing which players from the tournament had the highest total xG scoring rates predicted by the model. Total xG is calculated by adding together the xG values for each shot that the person took. A high total xG means that the player took quality shots that had a high probability of resulting in a goal. 
+
+```{r, message = FALSE, warning = FALSE}
+player_table_shots <- player_dataset_log %>%
+  group_by(player.name) %>%
+  tally(name = "total_shots", sort = TRUE)
+
+player_table_goals <- player_dataset_log %>%
+  filter(is.goal == "Goal") %>%
+  group_by(player.name) %>%
+  tally(name = "goals", sort = TRUE)
+
+player_table_xg <- player_dataset_log %>%
+  group_by(player.name) %>%
+  tally(Predicted_xG, name = "total_xG", sort = TRUE)
+
+summary_data_table <- left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+  mutate(xG_per_shot = sprintf("%0.2f", total_xG/total_shots))
+
+
+summary_data_table_log <- left_join(summary_data_table, player_table_goals, by = "player.name") %>%
+   mutate_all(~replace(., is.na(.), 0)) 
+ 
+# get the top 5 players with the highest total xG values
+top_5_total_xG <- summary_data_table_log %>%
+  arrange(desc(total_xG)) %>%
+  slice(1:5) %>%
+  rename("player" = player.name) %>%
+  kable()
+  
+top_5_total_xG 
+```
+
+From the table, it is evident that Alba María Redondo Ferrer from Spain has the highest total xG of 2.632. This means that the shots that she took were high quality ones that had a high probability of resulting in a goal.
+
+```{r, message=FALSE, warning=FALSE}
+
+player_dataset_log_new <- shots_valid_wwc_log_new %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y) %>%
+    rename("Shot_type" = shot.technique.name.x)
+
+Alba_Ferrer <- player_dataset_log_new %>%
+  filter(player.name == "Alba María Redondo Ferrer")
+
+plotly_shot_map <- ggplot(data = Alba_Ferrer, aes(x = location.x, y = location.y, color = Predicted_xG, stroke = is.goal_numeric, label = Play_Type, thirdlabel = Shot_body_part, fourthlabel = Shot_type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for Alba María Redondo Ferrer"), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
+```
+
+From the interactive shot map, I see that almost all of her 17 shots are from within the 18 yard box and are mainly centered. Like mentioned above, I know that being within the 18 yard box significantly increases the probability of scoring. I also see that she has some pretty high xG values associated with her shots of 0.34 and 0.294 respectively. 
+
+Additionally, I see from the table above that Alexandra Morgan Carrasco (Alex Morgan) from the United States has the second highest total xG. It is interesting how she had the second highest total xG but did not score any goals at the tournament. This is a prime example of why we use an expected goals model and calculate the xG value associated with each shot instead of solely relying on statistics like total goals as a metric for evaluating player performance. Total xG helps better highlight a player's performance and the quality of chances that they created. People might say that Alex Morgan had a terrible tournament because she did not score any goals, but the expected goals model and the xG values beg to differ. 
+
+```{r, message=FALSE, warning=FALSE}
+
+player_dataset_log_new <- shots_valid_wwc_log_new %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y) %>%
+    rename("Shot_type" = shot.technique.name.x)
+
+alex_morgan <- player_dataset_log_new %>%
+  filter(player.name == "Alexandra Morgan Carrasco")
+
+plotly_shot_map <- ggplot(data = alex_morgan, aes(x = location.x, y = location.y, color = Predicted_xG, stroke = is.goal_numeric, label = Play_Type, thirdlabel = Shot_body_part, fourthlabel = Shot_type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" xG Shot Map for Alex Morgan"), color = "xG") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+
+ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
+```
+
+From the interactive shot map, I see that all of Alex Morgan's shots are from well inside the 18 yard box. Additionally, it is evident that she created two really great opportunities to score as both shots (colored pink) had a xG value of around 0.42. 
+
+# Conclusion
+
+All in all, in this project I built an expected goals model using logistic regression to predict the probability of a shot resulting in a goal. I showed through multiple visualizations that the optimal location for scoring a goal is from within the 18 yard box. Additionally, I showed why xG is an effective metric for measuring a player's performance and why total shots and goals might not be. One limitation of this project is the lack of data that I had access to for building the model. There are only 1540 shots in the data set and typically an expected goals model has each shot compared to at least 1000 shots of similar characteristics. This limitation is why some of the xG values of certain shots are really high when in reality they should not be. Some future work would include obtaining more data on various shots and also exploring header shots vs regular kicking shots as I did not have enough time to get to this topic and investigate further. 
+
+
+Find the link to my blog post about this project [here](https://hope-donoghue.github.io/ds334blog/). 
+
+
+

@@ -1,0 +1,99 @@
+---
+title: "Shiny App Script"
+author: "Hope Donoghue"
+format: 
+  html:
+    embed-resources: true
+---
+
+Shiny App script for Final Project
+
+```{r, warning = FALSE, message = FALSE}
+# shiny App for logistic regression with shot map for players from certain teams
+library(shiny)
+library(plotly)
+library(ggsoccer)
+
+player_dataset_log <- shots_valid_wwc_log %>%
+    rename("Play_Type" = play_pattern.name.y) %>%
+    rename("Opponent" = opponent) %>%
+    rename("Predicted_xG" = .fitted) %>%
+    rename("Shot_body_part" = shot.body_part.name.y) %>%
+    rename("Shot_type" = shot.technique.name.x)
+
+# pull out levels of players and team
+players_unique <- player_dataset_log %>%
+  pull(player.name) %>%
+  unique()
+
+team_unique <- player_dataset_log %>% 
+  pull(team.name.x) %>%
+  unique()
+
+
+ui <- fluidPage(sidebarLayout(
+  sidebarPanel(
+    selectInput("team_sel", "Choose a team:", choices = sort(team_unique)),
+    selectInput("player_sel", "Choose a player:", choices = NULL)),
+  
+  mainPanel(plotlyOutput("shot_map"), tableOutput("table"))
+  )
+  
+)
+
+server <- function(input, output, session) {
+  
+  observeEvent(input$team_sel, {
+    
+    player_choices <- player_dataset_log %>% 
+      filter(team.name.x == input$team_sel) %>% 
+      distinct(player.name) %>% pull(player.name)
+    
+    updateSelectInput(inputId = "player_sel", 
+                      choices = sort(player_choices))
+  })
+  
+  player_team <- reactive({
+    player_team <- player_dataset_log %>%
+      filter(player.name == input$player_sel) %>%
+      filter(team.name.x == input$team_sel) 
+    
+  })
+  
+  output$shot_map <- renderPlotly({
+  plotly_shot_map <- ggplot(data = player_team(), aes(x = location.x, y = location.y, color = Predicted_xG, stroke = is.goal_numeric, label = Play_Type, thirdlabel = Shot_body_part, fourthlabel = Shot_type, secondlabel = Opponent)) +
+   annotate_pitch(dimensions = pitch_statsbomb) + theme_pitch() + coord_flip(xlim = c(55, 120), ylim = c(-12, 105)) + geom_point(shape = 1, size = 1.5) + labs(title = glue::glue(" Expected Goals Model: \n Shot Map for ", input$player_sel), color = "Probability of Goal \n (xG)") + scale_colour_gradientn(colors = c(low = "blue", high = "red"), limits=c(0, 1))
+    
+  ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
+  })
+  
+  output$table <- renderTable({
+    
+    player_table_shots <- player_team() %>%
+      group_by(player.name) %>%
+      tally(name = "total_shots", sort = TRUE)
+
+    player_table_goals <- player_team() %>%
+      filter(is.goal == "Goal") %>%
+      group_by(player.name) %>%
+      tally(name = "goals", sort = TRUE)
+    
+    player_table_xg <- player_team() %>%
+      group_by(player.name) %>%
+      tally(Predicted_xG, name = "total_xG", sort = TRUE)
+    
+    summary_data_table <-
+      left_join(player_table_xg, player_table_shots, by = "player.name") %>%
+      mutate(xG_per_shot = sprintf("%0.2f", total_xG / total_shots))
+    
+    summary_data_table <-
+      left_join(summary_data_table, player_table_goals, by = "player.name") %>%
+      mutate_all(~replace(., is.na(.), 0)) %>%
+      select(total_xG, total_shots, xG_per_shot, goals)
+    
+  })
+  
+}
+
+shinyApp(ui, server)
+```
