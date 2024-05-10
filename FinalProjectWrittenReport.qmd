@@ -318,7 +318,7 @@ shinyApp(ui, server)
 
 # Highest Total xG Scoring Rates from Model
 
-I was interested in seeing which players from the tournament had the highest total xG scoring rates predicted by the model. Total xG is calculated by adding together the xG values for each shot that the person took. A high total xG means that the player took quality shots that had a high probability of resulting in a goal. 
+I was interested in seeing which players from the tournament had the highest total xG scoring rates predicted by the model. Total xG is calculated by adding together the xG values for each shot that the player took. A high total xG means that the player took quality shots that had a high probability of resulting in a goal. 
 
 ```{r, message = FALSE, warning = FALSE}
 player_table_shots <- player_dataset_log %>%
@@ -393,7 +393,7 @@ plotly_shot_map <- ggplot(data = alex_morgan, aes(x = location.x, y = location.y
 ggplotly(plotly_shot_map, tooltip = c("color", "label", "thirdlabel", "fourthlabel", "secondlabel"))
 ```
 
-From the interactive shot map, I see that all of Alex Morgan's shots are from well inside the 18 yard box. Additionally, it is evident that she created two really great opportunities to score as both shots (colored pink) had a xG value of around 0.42. 
+From the interactive shot map, I see that all of Alex Morgan's shots are from well inside the 18 yard box. Additionally, it is evident that she created two really great opportunities to score as both shots (colored pink) have a xG value of around 0.42. 
 
 # Conclusion
 
