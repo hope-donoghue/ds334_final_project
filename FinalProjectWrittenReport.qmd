@@ -191,7 +191,7 @@ shots_valid_wwc_log_new %>%
   kable()
 ```
 
-I see that the shot that has the highest xG in the model is a lob by Lieke Martens against Vietnam that resulted in a goal. The shot has a xG of 0.8352. The video below displays the goal from the WWC 2023. Note that the video continues playing so you should stop it after the goal is done.
+I see that the shot that has the highest xG in the model is a lob by Lieke Martens against Vietnam that resulted in a goal. The shot has a xG of 0.8352. The video below displays the goal from the WWC 2023. The goal begins at 9:34 and ends at 9:38. Note that the video continues playing so you should stop it after the goal is done.
 
 {{< video https://www.youtube.com/watch?v=C3c-8cQzYws start="573">}}
 
